@@ -1,0 +1,1003 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(broom)
+
+library(ggtext)
+
+library(cowplot)
+library(patchwork)
+library(scales)
+
+library(ggh4x)
+library(pals)
+
+library(chisq.posthoc.test)
+```
+
+```{r}
+df_daa_dem_sa <- readRDS("../df/daa/analysis/df_daa_dem_sa")
+```
+
+# df_daa_dem
+
+```{r}
+# remove dcv ebr
+df_daa_dem_sa <- df_daa_dem_sa %>%
+  filter(!DAA_ind %in% c("DCV", "EBR")) 
+```
+
+```{r}
+# calculate min pts by dividing by max duration
+
+df_daa_dem_sa <- df_daa_dem_sa %>%
+  mutate(PTS_min = case_when(DAA == "DCV/ASV" ~ VALUE/(168*2),
+                             DAA == "EBR/GZR" ~ VALUE/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~VALUE/84,
+                             DAA == "GLE/PIB" ~ VALUE/(84*3),
+                             DAA == "SOF/VEL" ~ VALUE/168))
+
+```
+
+```{r}
+# calculate mx pts by dividing min duration
+
+df_daa_dem_sa <- df_daa_dem_sa %>%
+  mutate(PTS_max = case_when(DAA == "DCV/ASV" ~ VALUE/(168*2),
+                             DAA == "EBR/GZR" ~ VALUE/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~ VALUE/84,
+                             DAA == "GLE/PIB" ~ VALUE/(56*3),
+                             DAA == "SOF/VEL" ~ VALUE/84))
+```
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(CLASS_code, DAA) %>%
+  summarise(SUM = sum(PTS_min)) 
+```
+
+```{r}
+df_daa_dem_sa %>%
+  summarise(SUM = sum(PTS_min)) 
+```
+
+```{r}
+df_daa_dem_sa %>%
+  distinct(DAA, SHEET, YEAR_str, .keep_all = TRUE) %>%
+  summarise(sum = sum(PTS_max))
+```
+
+
+```{r}
+df_daa_dem_sa %>%
+  summarise(SUM = sum(PTS_max)) %>% 
+  mutate(SUM_round = round(SUM))
+```
+
+```{r}
+(306874.3 - 309969.8)/309969.8 * 100
+```
+
+# reorder age
+
+```{r}
+df_daa_dem_sa <- df_daa_dem_sa %>%
+  mutate(AGE_ori = AGE) %>%
+    mutate(AGE = fct_recode(AGE,
+                          "0-19" = "0-4",
+                          "0-19" = "5-9",
+                          "0-19" = "10-14",
+                          "0-19" = "15-19")) 
+```
+
+```{r}
+levels_age <- df_daa_dem_sa %>%
+  distinct(AGE, .keep_all = TRUE) %>%
+  arrange(AGE) %>%
+  pull(AGE)
+
+levels_age 
+```
+
+```{r}
+df_daa_dem_sa <- df_daa_dem_sa %>%
+  mutate(AGE = factor(AGE, levels = levels_age))
+```
+
+```{r}
+df_daa_dem_sa <- df_daa_dem_sa %>%
+    mutate(SEX = if_else(SEX == "M", "Male", "Female")) %>%
+  mutate(SEX = factor(SEX, levels = c("Male", "Female")))
+```
+
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(CLASS_code, DAA) %>%
+  summarise(SUM = sum(PTS_min)) %>%
+  ggplot(aes(SUM, CLASS_code, fill = DAA))+
+  geom_col()+
+  scale_x_continuous(breaks = c(seq(0, 3*10^5, 10^5), 2.5*10^5),
+                     limits = c(0, 3*10^5))+
+  theme_classic()+
+  theme(legend.position = "bottom")
+```
+
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(CLASS_code, DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ggplot(aes(SUM, CLASS_code, fill = DAA))+
+  geom_col()+
+  scale_x_continuous(breaks = c(seq(0, 3*10^5, 10^5), 2.5*10^5),
+                     limits = c(0, 3*10^5))+
+  theme_classic()+
+  theme(legend.position = "bottom")
+```
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(YEAR_str, DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ggplot(aes(YEAR_str, SUM, group= DAA, colour = DAA))+
+  geom_line()+
+  theme_classic()+
+  theme(legend.position = "right")
+```
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(YEAR_str, DAA) %>%
+  summarise(SUM = sum(PTS_min)) %>%
+  ggplot(aes(YEAR_str, SUM, group= DAA, colour = DAA))+
+  geom_line()+
+  theme_classic()+
+  theme(legend.position = "right")
+```
+
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str, DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ggplot(aes(AGE, SUM, fill = DAA))+
+  geom_col()+
+  facet_grid(rows = vars(DAA), cols = vars(SEX), scales = "free_y")+
+  theme_classic()+
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ggplot(aes(AGE, SUM, fill = SEX))+
+  geom_col()+
+  facet_grid(rows = vars(YEAR_str), cols = vars(SEX), scales = "free_y",
+             switch = "y")+
+  scale_y_continuous(expand = c(0, 0))+
+  theme_classic()+
+  theme(legend.position = "bottom",
+        strip.background = element_blank(),
+        strip.placement = "outside",
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+
+```{r}
+df_daa_dem_sa %>%
+                      group_by(AGE, SEX, YEAR_str) %>%
+                      summarise(SUM = sum(PTS_max)) %>%
+                      filter(YEAR_str == "2015") %>% as.data.frame()
+```
+
+```{r}
+# try removing both zeros in both sex
+
+df_daa_dem_sa_chisq <- df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ungroup() %>%
+  group_by(YEAR_str) %>%
+  pivot_wider(names_from = "SEX", values_from = "SUM") %>%
+  filter(! ( Male == 0  & Female ==0 )) %>%
+ # pivot_longer(cols = c(M, F), names_to = "SEX", values_to = "SUM")  %>%
+  nest(data = -YEAR_str) %>%
+  mutate(mat = map(data, function(x){
+    x %>% column_to_rownames(var = "AGE") %>% as.matrix()
+  })) %>%
+  mutate(test = map(mat, chisq.test),
+         tidied = map(test, tidy)) %>%
+  arrange(YEAR_str)
+  
+  
+  
+#  mutate(test = map(data, ~  chisq.test(.x$SUM ~ .x$AGE + .x$SEX)))
+
+```
+
+```{r}
+df_daa_dem_sa_chisq %>% unnest(tidied)
+```
+
+
+```{r}
+for (i in 1:nrow(df_daa_dem_sa_chisq)){
+  print(df_daa_dem_sa_chisq$test[i])
+}
+```
+
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ungroup() %>%
+  filter(SEX =="Male") %>%
+  select(!SEX) %>%
+  pivot_wider(names_from = "YEAR_str", values_from = "SUM") %>%
+  column_to_rownames(var = "AGE") %>% as.matrix() %>%
+  chisq.test() 
+```
+
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ungroup() %>%
+  filter(SEX =="Male") %>%
+  select(!SEX) %>%
+  pivot_wider(names_from = "YEAR_str", values_from = "SUM") %>%
+  column_to_rownames(var = "AGE") %>% as.matrix() %>%
+  chisq.posthoc.test(method = "bonferroni") %>%
+  filter(Value == "p values")
+```
+
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  filter(YEAR_str == "2015") %>%
+  pivot_wider(names_from = "SEX", values_from = "SUM") %>%
+  filter(! ( Male == 0  & Female ==0 )) %>%
+  column_to_rownames(var = "AGE") %>%
+  select(!YEAR_str) %>%
+  as.matrix() %>%
+  chisq.test()
+```
+
+
+
+```{r}
+# median
+df_daa_med_all <- df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ungroup() %>%
+  group_by(SEX, YEAR_str) %>%
+  mutate(TOTAL = sum(SUM)) %>%
+  group_by(SEX, YEAR_str) %>%
+  mutate(CS = cumsum(SUM)) %>%
+  mutate(PCT = CS/TOTAL * 100) %>%
+  filter(PCT >= 50) %>%
+  slice_min(PCT, n = 1) %>%
+  mutate(YEAR_SEX_AGE = paste0(YEAR_str, "_", SEX, "_", AGE)) %>%
+  ungroup()
+
+df_daa_med_all
+```
+
+```{r}
+df_daa_mod_all <- df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ungroup() %>%
+  group_by(SEX, YEAR_str) %>%
+  slice_max(SUM, n = 1) %>%
+  mutate(YEAR_SEX_AGE = paste0(YEAR_str, "_", SEX, "_", AGE)) %>%
+  ungroup() %>%
+  rename(MOD = "AGE")
+
+df_daa_mod_all
+```
+
+```{r}
+df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ungroup() %>%
+  group_by(YEAR_str) %>%
+  slice_max(SUM, n = 1) %>%
+  ungroup() %>%
+  arrange(SUM)
+```
+
+
+```{r}
+df_daa_scales <- df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ungroup() %>%
+  group_by(YEAR_str) %>%
+  slice_max(SUM, n = 1) %>%
+  mutate(ymax = case_when(SUM < 1000 ~ 1000,
+                       #  SUM >= 800 & SUM < 1000 ~ 1000,
+                         SUM >= 1000 & SUM < 1500 ~ 1500,
+                         SUM >= 1500 & SUM < 2000 ~ 2000,
+                         SUM >= 2000 & SUM < 3000 ~ 3000,
+                         SUM >= 3000 & SUM < 4000 ~ 4000,
+                         SUM >= 4000 & SUM < 8000 ~ 8000,
+                         SUM >= 8000 & SUM < 12000 ~ 12000,
+                         .default = NA
+                         )) %>%
+  ungroup()
+
+df_daa_scales
+```
+
+```{r}
+df_daa_scales <- df_daa_scales %>%
+  mutate(n = case_when(ymax %in% c(1000, 2000, 4000, 8000) ~ 3,
+                       ymax %in% c(1500, 3000) ~ 4,
+                       ymax %in% c(12000) ~ 5)) %>%
+  mutate(ymin = rep(0, 10))
+
+df_daa_scales
+```
+
+```{r}
+df_daa_scales_split <- split(df_daa_scales, df_daa_scales$YEAR_str)
+```
+
+```{r}
+daa_scales <- lapply(df_daa_scales_split, function(x) {
+  scale_y_continuous(limits = c(x$ymin, x$ymax),
+                     n.breaks = x$n,
+                     labels = label_comma(),
+                     expand = c(0, 0))
+})
+```
+
+```{r}
+df_daa_label <- df_daa_scales %>%
+              select(YEAR_str, ymax) %>%
+              mutate(SEX = "Male") %>%
+  bind_rows(tibble(SEX = "Female", YEAR_str = as.character(2014:2022))) %>%
+  mutate(SEX = factor(SEX, levels = c("Male", "Female")))
+
+df_daa_label
+```
+
+```{r}
+expand.grid(SEX = c("Male"), YEAR = 2014:2022)
+```
+
+
+```{r}
+p1 <- df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(YEAR_SEX_AGE = paste0(YEAR_str, "_", SEX, "_", AGE)) %>%
+  left_join(df_daa_med_all %>% select(YEAR_SEX_AGE, PCT),
+            by = join_by(YEAR_SEX_AGE)) %>%
+  left_join(df_daa_mod_all %>% select(YEAR_SEX_AGE, MOD),
+            by = join_by(YEAR_SEX_AGE)) %>%
+  mutate(ALPHA = if_else(!is.na(PCT), "a", "b")) %>%
+  mutate(ALPHA = factor(ALPHA, levels = c("a", "b"))) %>%
+  mutate(COL = if_else(!is.na(MOD), "c", "d")) %>%
+  mutate(COL = factor(COL, levels = c("c", "d"))) %>%
+  ggplot(aes(AGE, SUM, fill = SEX, alpha = ALPHA, colour = COL))+
+  geom_col(linewidth = 0.3)+
+  scale_fill_manual(values = c("#0072B2", "#D55E00"))+
+  scale_colour_manual(values = c("black", "white"))+
+  scale_alpha_manual(values = c(1, 0.5)) +
+    geom_text(data = df_daa_label,
+            aes(x = "0-4", y = ymax, label = YEAR_str),
+                hjust = 0, vjust = 1,
+            size = 2.8, colour = "black", fontface = "bold",
+            inherit.aes = FALSE)+
+  facet_grid2(rows = vars(YEAR_str),
+               cols = vars(SEX),
+              axes = "x",
+              remove_labels = "all",
+              scales = "free_y")+
+
+  ggh4x::facetted_pos_scales(y = daa_scales)+
+  labs(x = "Age", y = "Treated people (n)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 8, colour = "black", face = "bold"),
+        strip.text.y = element_blank(),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                   angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+      #  panel.spacing.y = unit(5, "mm"),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+p1
+```
+
+```{r}
+p1 <- df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(YEAR_SEX_AGE = paste0(YEAR_str, "_", SEX, "_", AGE)) %>%
+  left_join(df_daa_med_all %>% select(YEAR_SEX_AGE, PCT),
+            by = join_by(YEAR_SEX_AGE)) %>%
+  left_join(df_daa_mod_all %>% select(YEAR_SEX_AGE, MOD),
+            by = join_by(YEAR_SEX_AGE)) %>%
+  mutate(ALPHA = if_else(!is.na(PCT), "a", "b")) %>%
+  mutate(ALPHA = factor(ALPHA, levels = c("a", "b"))) %>%
+  ggplot(aes(AGE, SUM, fill = SEX, alpha = ALPHA))+
+  geom_col(linewidth = 0.3)+
+  scale_fill_manual(values = c("#0072B2", "#D55E00"))+
+  scale_alpha_manual(values = c(1, 0.5)) +
+    geom_text(data = df_daa_label,
+            aes(x = "0-19", y = ymax, label = YEAR_str),
+                hjust = 0, vjust = 1,
+            size = 2.8, colour = "black", fontface = "bold",
+            inherit.aes = FALSE)+
+  facet_grid2(rows = vars(YEAR_str),
+               cols = vars(SEX),
+              axes = "x",
+              remove_labels = "all",
+              scales = "free_y")+
+
+  ggh4x::facetted_pos_scales(y = daa_scales)+
+  labs(x = "Age", y = "Treated people (n)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 8, colour = "black", face = "bold"),
+        strip.text.y = element_blank(),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                   angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        panel.spacing.y = unit(5, "mm"),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+p1
+```
+
+
+
+```{r}
+ggsave("../figure/FigS1.pdf", p1, width = 175, height =235, units = "mm")
+
+ggsave("../figure/FigS1.svg", p1, width = 175, height =235, units = "mm")
+```
+
+```{r}
+df_daa_dem_sa <- df_daa_dem_sa %>%
+  mutate(YEAR_str = as.numeric(YEAR_str))
+```
+
+
+# sex difference
+```{r}
+
+p2_a1 <- df_daa_dem_sa %>%
+  group_by(SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ggplot(aes(YEAR_str, SUM, group = SEX, colour = SEX))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1) +
+  scale_colour_manual(values = c("#0072B2", "#D55E00"))+
+  scale_y_continuous(limits = c(0, 50000),
+                     breaks = seq(0, 50000, 10000),
+                     labels = label_comma())+
+   coord_cartesian(clip = "off")+
+  annotate(geom = "text",
+           x = (2014+2023)/2,
+           y = 50000,
+           label = "Annual",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+  labs(tag = "A",
+       x = "Year",
+       y = "Treated people (n)")+
+  theme_classic()+
+    theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.position.inside = c(1, 1),
+        legend.justification = c(1, 1),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = unit(c(0,5,0,0), "mm"))
+
+p2_a1 
+```
+
+
+```{r}
+p2_a2 <- df_daa_dem_sa %>%
+  group_by(SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(CUMSUM = cumsum(SUM)) %>%
+  ggplot(aes(YEAR_str, CUMSUM, group = SEX, colour = SEX))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1) +
+  geom_richtext(data = df_daa_dem_sa %>%
+                  group_by(SEX, YEAR_str) %>%
+                  summarise(SUM = sum(PTS_max)) %>%
+                  mutate(CUMSUM = cumsum(SUM)) %>%
+                  filter(YEAR_str == "2023") %>%
+                  mutate(label = scales::comma(round(CUMSUM))) %>%
+                  mutate(y = case_when(SEX == "Male" ~ CUMSUM - 200000/25,
+                                       SEX == "Female" ~ CUMSUM + 200000/25)) %>%
+                  mutate(vjust = case_when(SEX == "Male" ~ 1,
+                                       SEX == "Female" ~ 0)),
+                aes(x = YEAR_str, y = y, label = label, vjust = vjust),
+                hjust = 0.5,
+                size = 2.8,
+                colour = "black",
+                fill = NA, label.color = NA, 
+                label.padding = grid::unit(rep(0, 4), "pt"),
+                inherit.aes = NA)+
+    annotate(geom = "text",
+           x = (2014+2023)/2,
+           y = 200000,
+           label = "Cumulative",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+  scale_colour_manual(values = c("#0072B2", "#D55E00"))+
+  scale_y_continuous(limits = c(0, 200000),
+                     breaks = seq(0, 200000, 50000),
+                     labels = label_comma())+
+   coord_cartesian(clip = "off")+
+  
+  labs(
+       x = "Year",
+       y = "Treated people (n)")+
+  theme_classic()+
+  theme(
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "inside",
+        legend.position.inside = c(1, 0),
+        legend.justification = c(1, 0),
+       legend.background = element_blank(),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = unit(c(0,5,0,0), "mm"))
+
+p2_a2
+```
+
+```{r}
+p2_a <- p2_a1 + p2_a2+
+  plot_layout(ncol = 2, widths = c(1, 1))
+
+p2_a
+```
+
+
+
+#histogram
+
+```{r}
+df_daa_dem_sa <- df_daa_dem_sa %>%
+  mutate(YEAR_str = as.character(YEAR_str))
+```
+
+```{r}
+df_daa_dem_sa_n <- df_daa_dem_sa %>%
+  group_by(AGE, SEX, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) 
+```
+
+
+```{r}
+df_daa_dem_sa_n <- df_daa_dem_sa %>%
+  group_by(AGE, YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(SEX = "Total") %>%
+  bind_rows(df_daa_dem_sa_n) %>%
+  mutate(SEX = factor(SEX, levels = c("Total", "Male", "Female")))
+```
+
+```{r}
+df_daa_dem_sa_n %>%
+  ungroup() %>%
+  filter(SUM == max(SUM))
+```
+
+
+```{r}
+df_daa_dem_sa_n %>%
+  ggplot(aes(AGE, SUM, group = YEAR_str, colour = YEAR_str))+
+  geom_line(linewidth = 0.3)+
+  scale_colour_manual(values = as.vector(pals::kovesi.rainbow(n = 10)),
+                      name = "Year")+
+  scale_y_continuous(limits = c(0, 12000),
+                     breaks = seq(0, 12000, 3000),
+                     labels = label_comma())+
+  facet_wrap2(vars(SEX),
+              nrow = 1,
+              axes = "all",
+              remove_labels = "all")+
+  labs(tag = "B",
+       x = "Age",
+       y = "Treated people (n)")+
+  guides(colour = guide_legend(nrow = 2, byrow = TRUE,
+                               title.position = "top",
+                               override.aes = list(linewidth = 0.5)))+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 8, colour = "black", face = "bold"),
+        strip.text.y = element_blank(),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                   angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "bottom",
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        panel.spacing.y = unit(5, "mm"),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+```
+
+```{r}
+p2_b1 <- df_daa_dem_sa_n  %>%
+  filter(SEX == "Total") %>%
+  ggplot(aes(AGE, SUM, group = YEAR_str, colour = YEAR_str))+
+  geom_line(linewidth = 0.3)+
+  scale_colour_manual(values = as.vector(pals::kovesi.rainbow(n = 10)),
+                      name = "Year")+
+  scale_y_continuous(limits = c(0, 20000),
+                     breaks = seq(0, 20000, 5000),
+                     labels = label_comma())+
+      annotate(geom = "text",
+           x = (1+16)/2,
+           y = 20000,
+           label = "Total",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+  labs(tag = "B",
+       x = "Age",
+       y = "Treated people (n)")+
+  guides(colour = guide_legend(nrow = 2, byrow = TRUE,
+                               title.position = "left",
+                               override.aes = list(linewidth = 0.5)))+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                   angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.background = element_blank(),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0,0,0,0, "mm"),
+        legend.margin = margin(0, 0, 0, 0, "mm"))
+
+p2_b1
+```
+
+```{r}
+p2_bc_leg <- cowplot::get_legend(p2_b1)
+
+ p2_bc_leg <- wrap_elements(p2_bc_leg)
+
+ p2_bc_leg
+```
+
+```{r}
+p2_b1 <- p2_b1 + theme(legend.position = "none")
+```
+
+
+```{r}
+p2_b2 <- df_daa_dem_sa_n %>%
+  filter(SEX == "Male") %>%
+  ggplot(aes(AGE, SUM, group = YEAR_str, colour = YEAR_str))+
+  geom_line(linewidth = 0.3)+
+  scale_colour_manual(values = as.vector(pals::kovesi.rainbow(n = 10)),
+                      name = "Year")+
+  scale_y_continuous(limits = c(0, 12000),
+                     breaks = seq(0, 12000, 3000),
+                     labels = label_comma())+
+  
+        annotate(geom = "text",
+           x = (1+16)/2,
+           y = 12000,
+           label = "Male",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+  labs(
+       x = "Age",
+       y = "Treated people (n)")+
+  guides(colour = guide_legend(nrow = 2, byrow = TRUE,
+                               title.position = "top",
+                               override.aes = list(linewidth = 0.5)))+
+  theme_classic()+
+  theme(
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                   angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+p2_b2
+```
+
+```{r}
+p2_b3 <- df_daa_dem_sa_n %>%
+  filter(SEX == "Female") %>%
+  ggplot(aes(AGE, SUM, group = YEAR_str, colour = YEAR_str))+
+  geom_line(linewidth = 0.3)+
+  scale_colour_manual(values = as.vector(pals::kovesi.rainbow(n = 10)),
+                      name = "Year")+
+  scale_y_continuous(limits = c(0, 12000),
+                     breaks = seq(0, 12000, 3000),
+                     labels = label_comma())+
+  
+        annotate(geom = "text",
+           x = (1+16)/2,
+           y = 12000,
+           label = "Female",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+  labs(
+       x = "Age",
+       y = "Treated people (n)")+
+  guides(colour = guide_legend(nrow = 2, byrow = TRUE,
+                               title.position = "top",
+                               override.aes = list(linewidth = 0.5)))+
+  theme_classic()+
+  theme(
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                   angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+p2_b3
+```
+
+
+```{r}
+df_daa_dem_sa_pct <- df_daa_dem_sa_n %>%
+  group_by(SEX, YEAR_str) %>%
+  mutate(ALL = sum(SUM)) %>%
+  mutate(PCT = SUM/ALL * 100)
+```
+
+
+
+```{r}
+p2_c1 <- df_daa_dem_sa_pct %>%
+  filter(SEX =="Total") %>%
+  ggplot(aes(AGE, PCT, group = YEAR_str, colour = YEAR_str))+
+  geom_line(linewidth = 0.3)+
+  scale_colour_manual(values = as.vector(pals::kovesi.rainbow(n = 10)),
+                      name = "Year")+
+    scale_y_continuous(limits = c(0, 30),
+                     breaks = seq(0, 30, 10),
+                     labels = label_comma())+
+        annotate(geom = "text",
+           x = (1+16)/2,
+           y = 30,
+           label = "Total",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+  labs(
+       tag  = "C",
+       x = "Age", y = "Proportion (%)")+
+  guides(colour = guide_legend(nrow = 2, byrow = TRUE,
+                               title.position = "top",
+                               override.aes = list(linewidth = 0.5)))+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                   angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+p2_c1
+```
+
+```{r}
+p2_c2 <- df_daa_dem_sa_pct %>%
+  filter(SEX =="Male") %>%
+  ggplot(aes(AGE, PCT, group = YEAR_str, colour = YEAR_str))+
+  geom_line(linewidth = 0.3)+
+  scale_colour_manual(values = as.vector(pals::kovesi.rainbow(n = 10)),
+                      name = "Year")+
+    scale_y_continuous(limits = c(0, 30),
+                     breaks = seq(0, 30, 10),
+                     labels = label_comma())+
+        annotate(geom = "text",
+           x = (1+16)/2,
+           y = 30,
+           label = "Male",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+  
+  labs(
+       x = "Age",
+       y = "Proportion (%)")+
+  guides(colour = guide_legend(nrow = 2, byrow = TRUE,
+                               title.position = "top",
+                               override.aes = list(linewidth = 0.5)))+
+  theme_classic()+
+  theme(
+        plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                   angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+p2_c2
+```
+
+```{r}
+p2_c3 <- df_daa_dem_sa_pct %>%
+  filter(SEX =="Female") %>%
+  ggplot(aes(AGE, PCT, group = YEAR_str, colour = YEAR_str))+
+  geom_line(linewidth = 0.3)+
+  scale_colour_manual(values = as.vector(pals::kovesi.rainbow(n = 10)),
+                      name = "Year")+
+    scale_y_continuous(limits = c(0, 30),
+                     breaks = seq(0, 30, 10),
+                     labels = label_comma())+
+        annotate(geom = "text",
+           x = (1+16)/2,
+           y = 30,
+           label = "Female",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+  
+  labs(
+       x = "Age",
+       y = "Proportion (%)")+
+  guides(colour = guide_legend(nrow = 2, byrow = TRUE,
+                               title.position = "top",
+                               override.aes = list(linewidth = 0.5)))+
+  theme_classic()+
+  theme(
+        plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                   angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+p2_c3
+```
+
+
+```{r}
+p2_b1 <- p2_b1 + theme(axis.title.x = element_blank())
+
+p2_b2 <- p2_b2 + theme(axis.title.y = element_blank())
+
+p2_b3 <- p2_b3 + theme(axis.title.x = element_blank(),
+                       axis.title.y =  element_blank())
+```
+
+```{r}
+p2_c1 <- p2_c1 + theme(axis.title.x = element_blank())
+
+p2_c2 <- p2_c2 + theme(axis.title.y = element_blank())
+
+p2_c3 <- p2_c3 + theme(axis.title.x = element_blank(),
+                       axis.title.y =  element_blank())
+```
+
+```{r}
+p2_a <- p2_a1 + p2_a2 + plot_layout(nrow = 1, ncol = 2)
+
+p2_b <- p2_b1 + p2_b2 + p2_b3 +plot_layout(nrow = 1 , ncol = 3)
+
+p2_c <- p2_c1 + p2_c2 + p2_c3 +plot_layout(nrow = 1 , ncol = 3)
+```
+
+
+```{r}
+p2_a <- p2_a1 + p2_a2 + plot_layout(nrow = 1, ncol = 2)
+
+p2_bc <- p2_b1 + p2_b2 + p2_b3 + 
+  patchwork::free(p2_c1, type = "label")  + p2_c2 + p2_c3 + plot_layout(nrow = 2, ncol = 3)
+
+p2_bc
+```
+
+```{r}
+p2 <- p2_a / p2_bc/
+  p2_bc_leg +
+  plot_layout(heights = c(4, 8, 1))
+
+p2
+```
+
+```{r}
+ggsave( "../figure/Fig4.pdf", plot = p2,  height = 235, width = 180, units = "mm",
+        device = cairo_pdf)
+```
+

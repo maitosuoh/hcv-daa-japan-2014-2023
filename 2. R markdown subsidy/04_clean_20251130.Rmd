@@ -1,0 +1,731 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+library(openxlsx)
+
+library(patchwork)
+library(scales)
+```
+
+```{r}
+# create directories
+
+dir.create("../figure", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+```{r}
+rds_file <- list.files("../rds")
+
+rds_file
+```
+
+```{r}
+xlsx_rds <- paste0("../rds/", rds_file)
+
+xlsx_rds
+```
+
+```{r}
+list_df_1_2 <- purrr::map(xlsx_rds[1:2], readRDS)
+```
+
+```{r}
+list_df_3_14 <- purrr::map(xlsx_rds[3:14], readRDS)
+```
+
+
+```{r}
+list_df_total_1_2 <- purrr::map(list_df_1_2, function(x) x %>% filter(ROW == "合計"))
+```
+
+```{r}
+list_df_total_3_14 <- purrr::map(list_df_3_14, function(x) x %>% filter(CLASS == "計"))
+```
+
+
+```{r}
+rds_file_1_2 <- rds_file[1:2]
+
+rds_file_3_14 <- rds_file[3:14]
+```
+
+
+```{r}
+for (i in 1:length(list_df_total_1_2)){
+  assign(rds_file_1_2[i], list_df_total_1_2[[i]])
+}
+```
+
+```{r}
+for (i in 1:length(list_df_total_3_14)){
+  assign(rds_file_3_14[i], list_df_total_3_14[[i]])
+}
+```
+
+
+```{r}
+# hep C h26 ~ r05
+
+list_daa <- list(df_h26, df_h27, df_h28, df_h29, df_h30,
+               df_r01, df_r02, df_r03, df_r04, df_r05)
+```
+
+```{r}
+df_daa <- purrr::map(list_daa, function(x) x %>%
+                select(HEP, CLASS, starts_with(c("DAA", "YEAR"))) %>% 
+                filter(HEP != "Ｂ型"))　%>% list_rbind()
+```
+
+
+```{r}
+df_daa_long <- df_daa %>%
+  pivot_longer(starts_with("DAA"), names_to = "DAA", values_to = "VALUE")
+```
+
+```{r}
+df_daa_long <- df_daa_long %>%
+  mutate(DAA = str_remove(DAA, "DAA_"))
+```
+
+```{r}
+df_daa_long %>% count(HEP)
+```
+
+
+```{r}
+df_daa_long <- df_daa_long %>%
+  mutate(HEP_jp = HEP) %>%
+  mutate(HEP = case_when(HEP == "Ｃ型慢性肝炎" ~ "CH",
+                         HEP == "Ｃ型代償性肝硬変" ~ "c-LC",
+                         HEP == "Ｃ型非代償性肝硬変" ~ "d-LC",
+                         HEP == "合計" ~ "Total"))
+```
+
+```{r}
+df_daa_long <- df_daa_long %>% 
+  mutate(HEP = factor(HEP, levels = c("Total","CH", "c-LC", "d-LC"))) 
+```
+
+
+```{r}
+df_daa_all <- df_daa_long %>%
+  filter(HEP != "Total" & str_detect(DAA, "apr")) %>%
+  mutate(VALUE = replace_na(VALUE, 0)) %>%
+  group_by(YEAR) %>%
+  summarise(SUM = sum(VALUE)) %>%
+  mutate(CS = cumsum(SUM)) %>%
+  mutate(HEP = "All")
+  
+df_daa_all
+```
+
+
+```{r}
+p1_a1 <- df_daa_all %>%
+  ggplot(aes(YEAR, SUM, group = HEP))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  geom_text(data = df_daa_all %>% 
+              filter(YEAR %in% c(2015,  2023)),
+            aes(y = SUM + 10^5/25, label = SUM %>% comma()),
+                        colour= "black",
+            size =  2.8,
+            hjust = 0.5,
+             vjust = 0
+            )+
+  annotate(geom = "text",
+           x = (2014+2023)/2,
+           y = 100000,
+           label = "Annual",
+           colour = "black",
+           size = 2.8,
+           fontface = "bold")+
+  scale_x_continuous(breaks = seq(2014, 2022, 2),
+                     limits = c(2014, 2023))+
+  scale_y_continuous(breaks = seq(0, 100000, 20000),
+                     limits = c(0, 100000),
+                     label= label_comma())+
+  coord_cartesian(clip= "off")+
+  labs(tag = "A", 
+       x = "Year",
+       y = "Total subsidy (n)")+
+  theme_classic()+
+      theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+            #plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+            axis.title = element_text(size = 8, colour = "black", face = "bold"),
+            axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+p1_a1 
+```
+
+
+```{r}
+p1_a2 <- df_daa_all %>%
+  ggplot(aes(YEAR, CS, group = HEP))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  geom_text(data = df_daa_all %>%
+              filter(YEAR %in% c( 2023)),
+            aes(y = CS + 3*10^5/25,
+                label = CS %>% comma()),
+                colour= "black",
+            size =  2.8,
+            hjust = 0.5,
+             vjust = 0)+
+    annotate(geom = "text",
+           x = (2014+2023)/2,
+           y = 300000,
+           label = "Cumulative",
+           colour = "black",
+           size = 2.8,
+           fontface = "bold")+
+   scale_x_continuous(breaks = seq(2014, 2022, 2),
+                     limits = c(2014, 2023))+
+  scale_y_continuous(breaks = seq(0, 300000, 100000),
+                     limits = c(0, 300000),
+                     label= label_comma())+
+  coord_cartesian(clip= "off")+
+  labs(
+       x = "Year",
+       y = "")+
+  theme_classic()+
+      theme(
+            #plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+            axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+            axis.title.y = element_blank(),
+            axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+p1_a2 
+```
+
+
+```{r}
+p1_b1 <- df_daa_long %>%
+  filter(DAA == "1_apr") %>%
+  ggplot(aes(YEAR, VALUE, group = HEP, colour = HEP))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  geom_text(data =  df_daa_long %>%
+              filter(DAA == "1_apr" & HEP == "Total") %>%
+              filter(YEAR %in% c(2015, 2023)),
+            aes(y = VALUE + 10^5/25, label = VALUE %>% comma()),
+                        colour= "black",
+            size =  2.8,
+            hjust = 0.5,
+             vjust = 0
+            )+
+    annotate(geom = "text",
+           x = (2014+2023)/2,
+           y = 100000,
+           label = "Annual",
+           colour = "black",
+           size = 2.8,
+           fontface = "bold")+
+    scale_colour_manual(values = c("#999999",
+                                 "#2ca02c",
+                                 "#ff7f0e",
+                                 "#9467bd"))+
+   scale_x_continuous(breaks = seq(2014, 2022, 2),
+                     limits = c(2014, 2023))+
+  scale_y_continuous(breaks = seq(0, 100000, 20000),
+                     limits = c(0, 100000),
+                     label= label_comma())+
+  coord_cartesian(clip= "off")+
+  labs(tag = "B", 
+      # title = "Annual",
+       x = "Year",
+       y = "Initial treatment (n)")+
+#  geom_hline(yintercept = 0, linetype = 3)+
+  theme_classic()+
+      theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+           # plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+            axis.title = element_text(size = 8, colour = "black", face = "bold"),
+            axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "inside",
+        legend.justification = c(1, 1),
+        legend.position.inside = c(1, 1),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+p1_b1 
+```
+
+
+
+
+```{r}
+df_daa_long %>%
+  filter(DAA == "1_apr" & HEP == "d-LCC") %>%
+  ggplot(aes(YEAR, VALUE, group = HEP, colour = HEP))+
+  geom_line(linewidth = 0.3)+
+  scale_colour_manual(values = c("#999999",
+                                 "#ff7f00",
+                                 "#377eb8",
+                                 "#f781bf"))+
+  scale_y_continuous(breaks = seq(0, 1500, 500),
+                     limits = c(0, 1500))+
+  labs(x = "Year",
+       y = "Approved subsidy")+
+  theme_classic()
+```
+
+```{r}
+df_daa_long %>%
+  filter(DAA == "2_apr") 
+```
+
+
+```{r}
+p1_c1 <- df_daa_long %>%
+  filter(DAA == "2_apr") %>%
+  filter(!is.na(VALUE)) %>%
+  filter(HEP != "d-LC") %>%
+  ggplot(aes(YEAR, VALUE, group = HEP, colour = HEP))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1) +
+  geom_text(data = df_daa_long %>% filter(YEAR == 2017 & DAA == "2_apr" & HEP != "d-LCC"),
+            aes(y = VALUE + 2000/25, label = VALUE %>% comma()),
+           colour= "black",
+            size =  2.8,
+            hjust = 0.5,
+             vjust = 0) +
+    annotate(geom = "text",
+           x = (2014+2023)/2,
+           y = 2000,
+           label = "Annual",
+           colour = "black",
+           size = 2.8,
+           fontface = "bold")+
+  
+  scale_colour_manual(values = c("#999999",
+                                "#0072B2",
+                                "#D55E00"))+
+  scale_x_continuous(breaks = seq(2014, 2022, 2),
+                     limits = c(2014, 2023))+
+  scale_y_continuous(breaks = seq(0, 2000, 500),
+                     limits = c(0, 2000),
+                     label= label_comma())+
+  coord_cartesian(clip= "off")+
+  labs(tag = "C",
+      # title = "Annual",
+       x = "Year",
+       y = "Retreatment (n)")+
+#  geom_hline(yintercept = 0, linetype = 3)+
+  theme_classic()+
+      theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+           # plot.title = element_text(size = 8, colour = "black", face = "bold", hjust =  0.5),
+            axis.title = element_text(size = 8, colour = "black", face = "bold"),
+             axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "inside",
+        legend.justification = c(1, 1),
+        legend.position.inside = c(1, 1),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+p1_c1
+```
+
+```{r}
+df_daa_long %>%
+  filter(DAA == "1_apr") %>%
+  group_by(HEP) %>%
+  arrange(HEP, YEAR) %>%
+  mutate(CS = cumsum(VALUE)) %>% 
+  filter(CS == max(CS) )
+```
+
+```{r}
+df_cs_max_1 <- df_daa_long %>%
+  filter(DAA == "1_apr") %>%
+  group_by(HEP) %>%
+  arrange(HEP, YEAR) %>%
+  mutate(CS = cumsum(VALUE)) %>% 
+  filter(YEAR %in% c(2022, 2023))
+
+df_cs_max_1
+```
+
+```{r}
+cs_max_1 <- df_cs_max_1 %>% pull(CS)
+```
+
+
+```{r}
+# let's calculate cumulative
+
+p1_b2 <- df_daa_long %>%
+  filter(DAA == "1_apr") %>%
+  group_by(HEP) %>%
+  arrange(HEP, YEAR) %>%
+  mutate(CS = cumsum(VALUE)) %>%
+  ggplot(aes(YEAR, CS, group = HEP, colour = HEP))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+    geom_text(data = df_cs_max_1 %>% filter(YEAR ==2023),
+             aes(y = CS + 300000/25, label = CS %>% comma()),
+            colour= "black",
+            size =  2.8,
+            hjust = 0.5,
+             vjust = 0)+
+    annotate(geom = "text",
+           x = (2014+2023)/2,
+           y = 300000,
+           label = "Cumulative",
+           colour = "black",
+           size = 2.8,
+           fontface = "bold")+
+  scale_colour_manual(values = c("grey",
+                                 "#2ca02c",
+                                 "#ff7f0e",
+                                 "#9467bd"))+
+    scale_x_continuous(breaks = seq(2014, 2022, 2),
+                     limits = c(2014, 2023))+
+  scale_y_continuous(breaks = c(seq(0, 300000, 100000)),
+                     limits = c(0, 300000),
+                     label= label_comma())+
+  coord_cartesian(clip= "off")+
+  labs(#title = "Cumulative",
+       x = "Year",
+       y = "")+
+#  geom_hline(yintercept = 0, linetype = 3)+
+  theme_classic()+
+    theme(#plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+          axis.title = element_text(size = 8, colour = "black", face = "bold"),
+            axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+p1_b2
+```
+
+
+```{r}
+df_daa_long %>%
+  filter(DAA == "1_apr") %>%
+  group_by(HEP) %>%
+  arrange(HEP, YEAR) %>%
+  mutate(CS = cumsum(VALUE)) %>%
+  filter(YEAR == 2022)
+```
+
+```{r}
+df_daa_long %>%
+  filter(DAA == "2_apr") %>%
+  filter(!is.na(VALUE)) %>%
+  filter(HEP != "d-LCC") %>%
+  group_by(HEP) %>%
+  arrange(HEP, YEAR) %>%
+  mutate(CS = cumsum(VALUE)) %>%
+  filter(YEAR == 2022)
+```
+
+```{r}
+df_daa_long %>%
+  filter(!is.na(VALUE)) %>%
+  group_by(HEP, DAA) %>%
+  arrange(HEP, YEAR) %>%
+  mutate(CS = cumsum(VALUE)) %>%
+  filter(YEAR %in%  c(2022, 2023) & str_detect(DAA, "apr") & HEP_jp == "合計")
+```
+
+
+
+```{r}
+df_daa_long %>%
+  filter(DAA == "2_apr") %>%
+  filter(!is.na(VALUE)) %>%
+  group_by(HEP) %>%
+  arrange(HEP, YEAR) %>%
+  mutate(CS = cumsum(VALUE)) 
+```
+
+```{r}
+df_cs_max_2 <- df_daa_long %>%
+  filter(DAA == "2_apr") %>%
+  filter(!is.na(VALUE)) %>%
+  filter(HEP != "d-LC") %>%
+  group_by(HEP) %>%
+  arrange(HEP, YEAR) %>%
+  mutate(CS = cumsum(VALUE)) %>%
+  filter(YEAR %in% c("2017", "2023")) %>%
+  mutate(hjust = case_when(YEAR == 2017 ~ 1,
+                           YEAR == 2023 ~ 0.5)) %>%
+  mutate(vjust = case_when(YEAR == 2017 ~ 0.5,
+                           YEAR == 2023 ~ 0)) %>%
+    mutate(y = case_when(YEAR == 2017 ~ CS,
+                           YEAR == 2023 ~ CS + 5000/25)) %>%
+    mutate(x = case_when(YEAR == 2017 ~ YEAR - 10/25,
+                           YEAR == 2023 ~ YEAR))
+
+df_cs_max_2
+```
+
+
+
+```{r}
+# let's calculate cumulative
+
+p1_c2 <- df_daa_long %>%
+  filter(DAA == "2_apr") %>%
+  filter(!is.na(VALUE)) %>%
+  filter(HEP != "d-LC") %>%
+  group_by(HEP) %>%
+  arrange(HEP, YEAR) %>%
+  mutate(CS = cumsum(VALUE)) %>%
+  ggplot(aes(YEAR, CS, group = HEP, colour = HEP))+
+ # geom_hline(yintercept = cs_max, linetype = 3) +
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1) +
+    geom_text(data = df_cs_max_2,
+             aes(x = x,
+                 y = y, label = CS %>% comma(),
+                 hjust = hjust,
+                 vjust = vjust),
+            colour= "black",
+            size =  2.8,
+            inherit.aes = FALSE)+
+    annotate(geom = "text",
+           x = (2014+2023)/2,
+           y = 5000,
+           label = "Cumulative",
+           colour = "black",
+           size = 2.8,
+           fontface = "bold")+
+  scale_colour_manual(values = c("#999999",
+                                "#0072B2",
+                                "#D55E00"))+
+  scale_x_continuous(breaks = seq(2014, 2022, 2),
+                     limits = c(2014, 2023))+
+  scale_y_continuous(breaks = seq(0, 5000, 1000),
+                     limits = c(0, 5000),
+                     labels = label_comma())+
+  coord_cartesian(clip= "off")+
+  labs(#title = "Cumulative",
+       x = "Year",
+       y = "")+
+#  geom_hline(yintercept = 0, linetype = 3)+
+  theme_classic()+
+  theme(#plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"))
+
+p1_c2
+```
+
+```{r}
+# proportion annual
+
+p1_d1 <- df_daa_long %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+  filter(HEP != "Total" & str_detect(DAA, "apr")) %>%
+  group_by(YEAR) %>%
+  mutate(SUM = sum(VALUE)) %>%
+  ungroup() %>%
+  mutate(PCT = VALUE/SUM * 100) %>%
+  mutate(FILL = paste0(DAA, "_", HEP)) %>%
+  mutate(FILL = str_remove(FILL, "apr_")) %>%
+  mutate(FILL = str_replace(FILL, "1", "1st")) %>%
+  mutate(FILL = str_replace(FILL, "2", "2nd")) %>%
+  mutate(FILL = str_replace(FILL, "_", " ")) %>%
+  mutate(FILL = factor(FILL, levels = rev(c("1st CH",
+                                        "1st c-LC",
+                                        "1st d-LC",
+                                        "2nd CH",
+                                        "2nd c-LC")))) %>%
+  mutate(YEAR = as.character(YEAR)) %>%
+  ggplot(aes(YEAR, PCT, fill = FILL))+
+  geom_col(position = "stack", width = 0.7)+
+    scale_fill_manual(values = rev(c( "#2ca02c",
+                                "#ff7f0e",
+                                "#9467bd",
+                                "#0072B2",
+                               "#D55E00")))+
+  # scale_x_continuous(breaks = seq(2014, 2023, 1),
+  #                   limits = c(2014, 2023))+
+  scale_y_continuous(expand = c(0, 0),
+                     breaks = seq(0, 100, 20),
+                     limits = c(0, 100))+
+  labs(tag = "D",
+       x = "Year",
+       y = "Proportion (%)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black", angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+
+p1_d1
+```
+
+```{r}
+df_daa_prop_all <- df_daa_long %>%
+  filter(!is.na(VALUE)) %>%
+  filter(HEP != "Total" & str_detect(DAA, "apr")) %>%
+  group_by(HEP, DAA) %>%
+  summarise(SUM = sum(VALUE)) %>%
+  ungroup() %>%
+  mutate(TOTAL = sum(SUM)) %>%
+  mutate(PCT = SUM/TOTAL * 100) %>%
+  mutate(FILL = paste0(DAA, "_", HEP)) %>%
+  filter( ! (HEP == "d-LC" & DAA == "2_apr"))
+
+df_daa_prop_all 
+```
+
+```{r}
+df_daa_prop_all %>%
+  mutate( LAB = case_when(PCT >= 10 ~ round(PCT, 0),
+                         PCT <9 ~ round(PCT, 1)) )  %>%
+  mutate(LAB = case_when(LAB == 1.0 ~ paste0(as.character(LAB), ".0%"),
+                         .default = paste0(as.character(LAB), "%")))
+```
+
+
+```{r}
+p1_d2 <- df_daa_prop_all %>%
+  mutate( LAB = case_when(PCT >= 10 ~ round(PCT, 0),
+                         PCT <9 ~ round(PCT, 1)) )  %>%
+  mutate(LAB = case_when(LAB == 1.0 ~ paste0(as.character(LAB), ".0%"),
+                         .default = paste0(as.character(LAB), "%"))) %>%
+  mutate(FILL = str_remove(FILL, "apr_")) %>%
+  mutate(FILL = str_replace(FILL, "1", "1st")) %>%
+  mutate(FILL = str_replace(FILL, "2", "2nd")) %>%
+  mutate(FILL = str_replace(FILL, "_", " ")) %>%
+  mutate(FILL = factor(FILL, levels = c("1st CH",
+                                        "1st c-LC",
+                                        "1st d-LC",
+                                        "2nd CH",
+                                        "2nd c-LC"))) %>%
+  ggplot(aes(PCT, fct_reorder(FILL, PCT), fill = FILL))+
+  geom_col(width = 0.5)+
+  scale_fill_manual(values = c("#2ca02c",
+                                "#ff7f0e",
+                                "#9467bd",
+                                "#0072B2",
+                               "#D55E00"))+
+  geom_text(aes(label = LAB, x = PCT + 100/50),
+            size = 2.8, hjust = 0, vjust = 0.5) +
+  scale_x_continuous(expand = c(0, 0),
+                     breaks = seq(0, 100, 25),
+                     limits = c(0, 100))+
+  labs(x = "Proportion (%)",
+       y = "Indication")+
+  theme_classic()+
+   theme(plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"))
+
+p1_d2
+```
+
+
+
+```{r}
+p1 <- free(p1_a1, type = "label", side = "l") + p1_a2+ 
+  free(p1_b1, type = "label", side = "l") + p1_b2 + 
+  free(p1_c1, type = "label", side = "l") + p1_c2 + 
+  free(p1_d1, type = "label", side = "l") + 
+  free(p1_d2, type = "label", side = "b")+
+plot_layout(design = "AB
+                      CD
+                      EF
+                      GH")
+
+p1
+```
+
+```{r}
+ggsave("../figure/Fig1.pdf", p1, width = 180, height = 235, unit = "mm")
+```
+
+
+# calculate c-LC proportion
+
+```{r}
+df_daa_long %>%
+  mutate(VALUE = replace_na(VALUE, 0)) %>%
+  filter(HEP != "Total") %>%
+  filter(str_detect(DAA, "apr")) %>%
+  mutate(TOTAL = sum(VALUE)) 
+```
+
+```{r}
+# from 2017
+
+df_daa_long %>%
+  mutate(VALUE = replace_na(VALUE, 0)) %>%
+  filter(HEP != "Total") %>%
+  filter(str_detect(DAA, "apr")) %>%
+  mutate(TOTAL = sum(VALUE)) %>%
+  mutate(YEAR = as.character(YEAR)) %>%
+  mutate(YEAR = as.numeric(YEAR))  %>%
+  filter(YEAR >= 2017 & str_detect(DAA, "2") & str_detect(HEP, "LC")) %>%
+  mutate(PCT = VALUE/TOTAL * 100) %>%
+  summarise(PCT = sum(PCT))
+```
+
+```{r}
+df_daa_long %>%
+  mutate(VALUE = replace_na(VALUE, 0)) %>%
+  filter(HEP != "Total") %>%
+  filter(str_detect(DAA, "apr")) %>%
+  mutate(TOTAL = sum(VALUE)) %>%
+  mutate(YEAR = as.character(YEAR)) %>%
+  mutate(YEAR = as.numeric(YEAR))  %>%
+  filter(YEAR >= 2017  & str_detect(HEP, "LC")) %>%
+  mutate(PCT = VALUE/TOTAL * 100) %>%
+  summarise(SUM = sum(PCT))
+```
+

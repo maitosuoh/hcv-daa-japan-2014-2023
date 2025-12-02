@@ -1,0 +1,179 @@
+---
+title: "Currency"
+output: html_document
+date: "2025-11-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(openxlsx)
+```
+
+```{r}
+# create directories
+
+dir.create("../pdf", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+dir.create("../pdf/boj", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+dir.create("../rds/boj", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+```{r}
+xlsx_boj <- list.files("../xlsx/boj")
+```
+
+```{r}
+path_boj <- paste0("../xlsx/boj/", xlsx_boj)
+```
+
+
+```{r}
+# 1 File date
+# 2 DES
+
+# 16D USD/YEN
+# 16F EUR/USD
+# 16J EUR/YEN
+
+date <- read.xlsx(path_boj[1],
+                   colNames = FALSE,
+                   rows = 1,
+                   fillMergedCells = FALSE) %>% pull(X1)
+
+des <- read.xlsx(path_boj[1],
+                   colNames = FALSE,
+                   rows = 2,
+                   fillMergedCells = FALSE) %>% pull(X1)
+
+df <- read.xlsx(path_boj[1],
+                   colNames = TRUE,
+                   rows = c(3:17),
+                   cols = c(3:9),
+                   fillMergedCells = FALSE) 
+```
+
+
+```{r}
+df %>% filter(str_detect(X1, "ベース")) %>%
+  select(!starts_with("X")) %>%
+  rename(USD_JPY = "ドル／円") %>%
+  rename(EUR_USD = "ユーロ／ドル") %>%
+  rename(EUR_JPY = "ユーロ／円.（裁定）") %>%
+  mutate(DATE = date) %>%
+  mutate(DATE = str_extract(DATE, "[[:digit:]\\/]+")) %>%
+    mutate(DES = des) %>%
+  mutate(YEAR = str_extract(DES, "[:digit:]+")) %>%
+  relocate(YEAR, .before = "USD_JPY")
+```
+
+
+```{r}
+# x is the path
+# file 2016 is borken
+
+parse_boj <- function(x){
+  
+  file <- str_extract(x, "ex[:digit:]{4}")
+  
+  date <- read.xlsx(x,
+                   colNames = FALSE,
+                   rows = 1,
+                   fillMergedCells = FALSE) %>% pull(X1)
+  
+  des <- read.xlsx(x,
+                   colNames = FALSE,
+                   rows = 2,
+                   fillMergedCells = FALSE) %>% pull(X1)
+  
+  df <- read.xlsx(x,
+                   colNames = TRUE,
+                   rows = c(3:17),
+                   cols = c(3:9),
+                   fillMergedCells = FALSE) 
+  
+  df <- df %>% filter(str_detect(X1, "ベース")) %>%
+    select(!starts_with("X")) %>%
+    rename(USD_JPY = "ドル／円") %>%
+    rename(EUR_USD = "ユーロ／ドル") %>%
+    rename(EUR_JPY = "ユーロ／円.（裁定）") %>%
+    mutate(FILE = file) %>%
+    mutate(DATE = date) %>%
+    mutate(DATE = str_extract(DATE, "[[:digit:]\\/]+")) %>%
+    mutate(DES = des) %>%
+    mutate(YEAR = str_extract(DES, "[:digit:]+")) %>%
+    relocate(YEAR, .before = "USD_JPY")
+}
+```
+
+```{r}
+df_boj <- map(path_boj[c(1:2, 4:10)], parse_boj) %>% list_rbind()
+```
+
+```{r}
+# only parse 2016
+
+path_boj_2016 <- path_boj[3]
+  
+  des_2016 <- read.xlsx(path_boj_2016,
+                   colNames = FALSE,
+                   rows = 1,
+                   fillMergedCells = FALSE) %>% pull(X1)
+  
+  df_boj_2016 <- read.xlsx(path_boj_2016,
+                   colNames = TRUE,
+                   rows = c(2:12),
+                   cols = c(3:8),
+                   fillMergedCells = FALSE) 
+  
+  df_boj_2016 <- df_boj_2016 %>% filter(str_detect(X1, "ベース")) %>%
+    select(!starts_with("X")) %>%
+    rename(USD_JPY = "ドル／円") %>%
+    rename(EUR_USD = "ユーロ／ドル") %>%
+    rename(EUR_JPY = "ユーロ／円.（裁定）") %>%
+    mutate(FILE = path_boj_2016) %>%
+    mutate(FILE = str_extract(FILE, "ex[:digit:]{4}")) %>%
+    mutate(DES = des_2016) %>%
+    mutate(YEAR = str_extract(DES, "[:digit:]+")) %>%
+    relocate(YEAR, .before = "USD_JPY")
+  
+df_boj_2016
+```
+
+```{r}
+df_boj <- df_boj %>%
+  bind_rows(df_boj_2016) %>%
+  arrange(YEAR)
+
+df_boj
+```
+
+```{r}
+df_boj %>%
+  mutate(BOJ = "boj") %>%
+  ggplot(aes(YEAR, USD_JPY, group = BOJ, colour = BOJ)) +
+  geom_line()+
+  theme_classic() +
+  scale_y_continuous(limits = c(0, 150),
+                   breaks = seq(0,150, 50))+
+  theme(legend.position = "none")
+```
+```{r}
+saveRDS(df_boj, "../rds/boj/df_boj")
+```
+
+
+```{r}
+list_boj <- map(path_boj, extract_tables)
+```
+
+```{r}
+list_boj[[1]]
+```
+

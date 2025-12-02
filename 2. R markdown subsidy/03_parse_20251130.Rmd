@@ -1,0 +1,498 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(openxlsx)
+```
+
+```{r}
+# create directories
+
+dir.create("../rds", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+```{r}
+xlsx_file <- list.files("../xlsx")
+
+xlsx_file
+```
+
+```{r}
+xlsx_path <- paste0("../xlsx/", xlsx_file)
+
+xlsx_path
+```
+
+```{r}
+year_name <- xlsx_file %>% str_extract("[:alpha:][:digit:]{2}")
+
+year_name
+
+df_name <- paste0("df_", year_name)
+
+df_name
+```
+
+```{r}
+list_df <- map(xlsx_path, function(x) read.xlsx(x,
+                                                startRow = 1,
+                                                fillMergedCells = FALSE))
+```
+
+
+```{r}
+# read pre data frames for inspection
+for (i in 1:length(list_df)){
+  assign( paste0(df_name[i], "_pre"), list_df[[i]])
+}
+```
+
+```{r}
+# r02 r05
+
+xlsx_path_r02_r05 <- xlsx_path[11:14]
+
+year_r02_r05 <- year_name[11:14]
+
+df_name_r02_r05 <- df_name[11:14]
+```
+
+
+```{r}
+# function for parsing r02 to r05
+parse_r02_r05 <- function(x, y){
+  df <- read.xlsx(x,
+            startRow = 4,
+            fillMergedCells = FALSE) 
+  
+  colnames(df) <- c("HEP",	"CLASS",	
+                     "IFN_1_apl",	"IFN_1_apr",
+                     "IFN_2_apl", "IFN_2_apr",	
+                     "IFN_3_apl",	"IFN_3_apr",
+                     "DAA_1_apl",	"DAA_1_apr",
+                     "DAA_2_apl", "DAA_2_apr",	"NUC_new_apl",
+                     "NUC_new_apr",	"NUC_re")
+  
+  df <- df %>%
+    mutate(YEAR = y) %>%
+    fill(HEP, .direction = "down") %>%
+    mutate(across(where(is.numeric), ~ replace_na(.x, 0)))
+  
+  return(df)
+}
+```
+
+```{r}
+list_df_r02_05 <- map2(xlsx_path_r02_r05, year_r02_r05, parse_r02_r05)
+```
+
+```{r}
+# read pre data frames for inspection
+for (i in 1:length(list_df_r02_05)){
+  assign(df_name_r02_r05[i], list_df_r02_05[[i]])
+}
+```
+
+
+```{r}
+# h30 r01
+
+xlsx_path_h30_r01 <- xlsx_path[9:10]
+
+year_h30_r01 <- year_name[9:10]
+
+df_name_h30_r01 <- df_name[9:10]
+```
+
+```{r}
+# function for parsing r02 to r05
+parse_h30_r01 <- function(x, y){
+  df <- read.xlsx(x,
+            startRow = 4,
+            fillMergedCells = FALSE) 
+  
+  colnames(df) <- c("HEP",	"CLASS",	
+                        "IFN_1_apl",	"IFN_1_apr",
+                     "IFN_2_apl", "IFN_2_apr",	
+                     "IFN_3_apl",	"IFN_3_apr",
+                     "IRP_1_apl", "IPR_1_apr",
+                     "IRP_2_apl", "IPR_2_apr",
+                     "DAA_1_apl",	"DAA_1_apr",
+                     "DAA_2_apl", "DAA_2_apr",
+                     "NUC_new_apl", "NUC_new_apr",	"NUC_re")
+  
+  df <- df %>%
+    mutate(YEAR = y) %>%
+    fill(HEP, .direction = "down") %>%
+    mutate(across(where(is.numeric), ~ replace_na(.x, 0)))
+  
+  return(df)
+}
+```
+
+
+```{r}
+list_df_h30_r01 <- map2(xlsx_path_h30_r01, year_h30_r01, parse_h30_r01)
+```
+
+```{r}
+# read pre data frames for inspection
+for (i in 1:length(list_df_h30_r01)){
+  assign(df_name_h30_r01[i], list_df_h30_r01[[i]])
+}
+```
+
+```{r}
+# h29
+
+xlsx_path_h29 <- xlsx_path[8]
+
+year_h29 <- year_name[8]
+
+df_name_h29 <- df_name[8]
+```
+
+
+```{r}
+# h29 only
+
+df_h29 <- read.xlsx(xlsx_path_h29,
+            startRow = 4,
+            fillMergedCells = FALSE) 
+  
+
+colnames(df_h29) <- c("HEP",	"CLASS",	
+                     "IFN_1_apl",	"IFN_1_apr",
+                     "IFN_2_apl", "IFN_2_apr",	
+                     "IRP_1_apl", "IPR_1_apr",
+                     "IRP_2_apl", "IPR_2_apr",
+                     "DAA_1_apl",	"DAA_1_apr",
+                     "DAA_2_apl", "DAA_2_apr",
+                     "NUC_new_apl", "NUC_new_apr",	"NUC_re")
+  
+df_h29 <- df_h29 %>%
+    mutate(YEAR = year_h29) %>%
+    fill(HEP, .direction = "down") %>%
+    mutate(across(where(is.numeric), ~ replace_na(.x, 0)))
+```
+
+
+```{r}
+# h26 h28
+
+xlsx_path_h26_h28 <- xlsx_path[5:7]
+
+year_h26_h28 <- year_name[5:7]
+
+df_name_h26_h28 <- df_name[5:7]
+```
+
+
+```{r}
+# function for parsing h26_h2
+parse_h26_h28 <- function(x, y){
+  df <- read.xlsx(x,
+                  startRow = 4,
+                  fillMergedCells = FALSE) 
+  
+  colnames(df) <- c("HEP",	"CLASS",	
+                    "IFN_1_apl",	"IFN_1_apr",
+                    "IFN_2_apl", "IFN_2_apr",	
+                    "IRP_1_apl", "IPR_1_apr",
+                    "IRP_2_apl", "IPR_2_apr",
+                    "DAA_1_apl",	"DAA_1_apr",
+                  　"NUC_new_apl", "NUC_new_apr",	"NUC_re")
+  
+  df <- df %>%
+    mutate(YEAR = y) %>%
+    fill(HEP, .direction = "down") %>%
+    mutate(across(where(is.numeric), ~ replace_na(.x, 0)))
+  
+  return(df)
+}
+```
+
+```{r}
+list_df_h26_h28 <- map2(xlsx_path_h26_h28, year_h26_h28, parse_h26_h28)
+```
+
+
+```{r}
+# read pre data frames for inspection
+for (i in 1:length(list_df_h26_h28)){
+  assign(df_name_h26_h28[i], list_df_h26_h28[[i]])
+}
+```
+
+
+```{r}
+# h25
+
+xlsx_path_h25 <- xlsx_path[4]
+
+year_h25 <- year_name[4]
+
+df_name_h25 <- df_name[4]
+```
+
+
+```{r}
+# h25 only
+
+df_h25 <- read.xlsx(xlsx_path_h25,
+            startRow = 4,
+            fillMergedCells = FALSE) 
+  
+
+colnames(df_h25) <- c("HEP",	"CLASS",	
+                     "IFN_1_apl",	"IFN_1_apr",
+                     "IFN_2_apl", "IFN_2_apr",	
+                     "IRP_1_apl", "IPR_1_apr",
+                     "IRP_2_apl", "IPR_2_apr",
+                     "NUC_new_apl", "NUC_new_apr",	"NUC_re")
+  
+df_h25 <- df_h25 %>%
+    mutate(YEAR = year_h25) %>%
+    fill(HEP, .direction = "down") %>%
+    mutate(across(where(is.numeric), ~ replace_na(.x, 0)))
+```
+
+
+```{r}
+# h24
+
+xlsx_path_h24 <- xlsx_path[3]
+
+year_h24 <- year_name[3]
+
+df_name_h24 <- df_name[3]
+```
+
+
+```{r}
+# h24 only
+
+df_h24 <- read.xlsx(xlsx_path_h24,
+            startRow = 4,
+            fillMergedCells = FALSE) 
+  
+
+colnames(df_h24) <- c("HEP",	"CLASS",	
+                     "IFN_1_apl",	"IFN_1_apr",
+                     "IFN_2_apl", "IFN_2_apr",	
+                     "IRP_1_apl", "IPR_1_apr",
+                     "NUC_new_apl", "NUC_new_apr",	"NUC_re")
+  
+df_h24 <- df_h24 %>%
+    mutate(YEAR = year_h24) %>%
+    fill(HEP, .direction = "down") %>%
+    mutate(across(where(is.numeric), ~ replace_na(.x, 0)))
+```
+
+
+```{r}
+# h23
+
+xlsx_path_h23 <- xlsx_path[2]
+
+year_h23 <- year_name[2]
+
+df_name_h23 <- df_name[2]
+```
+
+```{r}
+# h23 only
+
+df_h23 <- read.xlsx(xlsx_path_h23,
+            startRow = 3,
+            fillMergedCells = FALSE) 
+  
+
+colnames(df_h23) <- c("ROW",	"PREF",	
+                     "IFN_1_apl",	"IFN_1_apr",
+                     "IFN_2_apl", "IFN_2_apr",	
+                     "IFN_total_apl", "IFN_total_apr",
+                     "IRP_1_apl", "IPR_1_apr",
+                     "NUC_new_apl", "NUC_new_apr",	"NUC_re",
+                     "SUM_new_apl", "SUM_new_apr", "SUM_re")
+  
+df_h23 <- df_h23 %>%
+    mutate(YEAR = year_h23)  %>%
+    mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>%
+  mutate(PREF = if_else(is.na(PREF), "全国", PREF)) %>%
+  mutate(PREF = str_remove_all(PREF, " "))
+```
+
+
+```{r}
+# h22
+
+xlsx_path_h22 <- xlsx_path[1]
+
+year_h22 <- year_name[1]
+
+df_name_h22 <- df_name[1]
+```
+
+```{r}
+# h22 only
+
+df_h22 <- read.xlsx(xlsx_path_h22,
+            startRow = 4,
+            fillMergedCells = FALSE) 
+  
+colnames(df_h22) <- c("ROW",	"PREF",	
+                     "IFN_1_apl",	"IFN_1_apr",
+                     "IFN_2_apl", "IFN_2_apr",	
+                     "IFN_total_apl", "IFN_total_apr",
+                     "NUC_new_apl", "NUC_new_apr",
+                     "SUM_new_apl", "SUM_new_apr")
+  
+df_h22 <- df_h22 %>%
+  mutate(YEAR = year_h22)  %>%
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>%
+  mutate(PREF = if_else(is.na(PREF), "全国", PREF)) %>%
+  mutate(PREF = str_remove_all(PREF, " "))
+```
+
+
+```{r}
+list_df_clean <- list(df_h22, df_h23, df_h24, df_h25, df_h26,
+                   df_h27, df_h28, df_h29, df_h30,
+                   df_r01, df_r02, df_r03, df_r04, df_r05)
+```
+
+```{r}
+list_df_clean[[1]]
+```
+
+
+```{r}
+convert_year("h22")
+```
+```{r}
+class(df_h22)
+```
+
+```{r}
+df_h22 %>% count(YEAR)
+```
+
+
+```{r}
+df_h22 %>%  rename(YEAR_jp = "YEAR") %>%
+                      mutate(YEAR = case_when(str_detect(YEAR_jp, "^h") ~ as.numeric(str_remove(YEAR_jp, "^h")) + 1988,
+                                              str_detect(YEAR_jp, "^r") ~ as.numeric(str_remove(YEAR_jp, "^r0")) + 2018,
+                                              .default = NA)) %>% count(YEAR)
+```
+
+
+```{r}
+list_df_year <- map(list_df_clean, function(x) x %>%
+                      rename(YEAR_jp = "YEAR") %>%
+                      mutate(YEAR = case_when(str_detect(YEAR_jp, "^h") ~ as.double(str_remove(YEAR_jp, "^h")) + 1988,
+                                              str_detect(YEAR_jp, "^r") ~ as.double(str_remove(YEAR_jp, "^r0")) + 2018,
+                                              .default = NA)))
+```
+
+```{r}
+map(list_df_year, function(x) x %>%
+      count(YEAR_jp, YEAR)) %>% list_rbind()
+```
+
+```{r}
+df_name
+```
+
+
+```{r}
+for (i in 1:length(list_df_year)) {
+  saveRDS(list_df_year[[i]], paste0("../rds/", df_name[i]))
+  print(paste(df_name[i], "completed"))
+}
+```
+
+```{r}
+list_df_year[[14]] %>% View()
+```
+
+```{r}
+as.numeric(str_remove("r05", "r0")) + 2018
+```
+
+
+```{r}
+colnames(df_r05) <- c("HEP",	"CLASS",	
+                     "IFN_1_apl",	"IFN_1_apr",
+                     "IFN_2_apl", "IFN_2_apr",	
+                     "IFN_3_apl",	"IFN_3_apr",
+                     "DAA_1_apl",	"DAA_1_apr",
+                     "DAA_2_apl", "DAA_2_apr",	"NUC_new_apl",
+                     "NUC_new_apr",	"NUC_re")
+```
+
+
+```{r}
+df_r05 <- df_r05 %>%
+  fill(HEP, .direction = "down")
+```
+
+```{r}
+df_r05 <- df_r05 %>% mutate(across(where(is.numeric), ~ replace_na(.x, 0)))
+```
+
+
+```{r}
+list_df <- map(xlsx_path, function(x) read.xlsx(x,
+                                                startRow = 4,
+                                                fillMergedCells = FALSE))
+```
+
+```{r}
+for (i in 1:length(list_df)){
+  assign( paste0(df_name[i]), list_df[[i]])
+}
+```
+
+
+```{r}
+df <- read.xlsx(xlsx_path[1], startRow = 1,
+                 fillMergedCells = FALSE)
+```
+
+
+```{r}
+hep_rds <- paste0("../rds/", hep_pdf_ss) %>% 
+
+hep_rds 
+```
+
+```{r}
+df <- extract_tables(hep_path_ss[1],
+                     output = "tibble" ) #,
+                    # outdir = hep_csv[1])
+
+df_1 <- df[[1]] 
+```
+
+```{r}
+df_1 <- df[[1]] 
+```
+
+
+```{r}
+for (i in 1:length(hep_pdf_ss)){
+  pdf_subset(hep_path_ss[i], 
+            pages = 2, output = hep_out[i])
+  print(paste(hep_pdf_ss[i], "completed" ))
+}
+```

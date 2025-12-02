@@ -1,0 +1,184 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+```
+
+
+```{r}
+# make folder all in rds for saving data frame
+
+dir.create("../df/cost",
+             showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+```{r}
+file_all <- list.files("../rds/cost/") 
+
+file_all 
+```
+```{r}
+df_cost_all <- readRDS("../rds/cost/df_cost_all")
+```
+
+```{r}
+df_cost_dem <- readRDS("../rds/cost/df_cost_dem")
+```
+
+```{r}
+df_cost_sa <- readRDS("../rds/cost/df_cost_sa")
+```
+
+```{r}
+df_cost_dem_hep <- df_cost_dem %>%
+  filter(str_detect(DIS_2, "ウイルス") & str_detect(DIS_2, "肝炎"))
+```
+
+```{r}
+df_cost_dem_hep <- df_cost_dem_hep %>%
+  mutate(DIF_total = T_total - lag(T_total)) %>%
+  filter(!is.na(DIF_total)) %>%
+  mutate(YEAR_p = as.numeric(YEAR)) %>%
+  mutate(YEAR_p = YEAR_p -1) %>%
+  mutate(YEAR_diff = paste0(YEAR, "_", YEAR_p))
+```
+
+```{r}
+saveRDS(df_cost_dem_hep, "../df/cost/df_cost_dem_hep")
+```
+
+```{r}
+df_cost_sa_hep <- df_cost_sa %>%
+  filter(str_detect(DIS_2, "ウイルス") & str_detect(DIS_2, "肝炎")) %>%
+    select(!c(starts_with("I"), starts_with("o"))) %>%
+  mutate(across(starts_with("T_") , ~ as.numeric(.x))) 
+```
+
+
+```{r}
+df_cost_sa_hep <- df_cost_sa_hep %>%
+  pivot_longer(cols = c(starts_with("T_")),
+               names_to = "CAT_AGE", values_to = "VALUE")
+```
+
+
+```{r}
+df_cost_sa_hep <- df_cost_sa_hep %>%
+  mutate(AGE = str_remove(CAT_AGE, "[:alpha:]{1}\\_"))
+```
+
+```{r}
+df_cost_sa_hep <- df_cost_sa_hep %>%
+  mutate(SEX_AGE = paste0(SEX, "_", AGE))
+```
+
+```{r}
+df_cost_sa_hep_wide <- df_cost_sa_hep %>%
+  select(YEAR, SEX_AGE, VALUE) %>%
+  pivot_wider(names_from = SEX_AGE, values_from = VALUE)
+```
+
+
+```{r}
+df_cost_sa_hep_wide <- df_cost_sa_hep_wide %>%
+  mutate(across(!YEAR, ~.x - lag(.x)) ) %>%
+  filter(YEAR != "2014")
+```
+
+```{r}
+df_cost_sa_hep_long <- df_cost_sa_hep_wide %>%
+  pivot_longer(cols = !YEAR, names_to = "SEX_AGE", values_to = "DIF_hep")
+```
+
+
+```{r}
+df_cost_sa_hep_long <- df_cost_sa_hep_long %>%
+  mutate(ID = paste0(YEAR, "_", SEX_AGE))
+```
+
+```{r}
+saveRDS(df_cost_sa_hep_long, "../df/cost/df_cost_sa_hep_long")
+```
+
+
+# old
+
+
+```{r}
+df_cost_sa_hep_m <- df_cost_sa_hep %>% filter(SEX =="M")
+```
+
+```{r}
+df_cost_sa_hep_m <- df_cost_sa_hep_m %>%
+  select(!c(starts_with("I"), starts_with("o"))) %>%
+  mutate(across(starts_with("T_") , ~ as.numeric(.x))) 
+```
+
+```{r}
+df_cost_sa_hep_m <- df_cost_sa_hep_m  %>%
+  mutate(across(starts_with("T_"), ~ .x - lag(.x))) %>%
+  rename_with(~paste0("DIF_", .x), .cols = starts_with("T_")) %>%
+  filter(!YEAR =="2014")
+```
+
+```{r}
+df_cost_sa_hep_m_long <- df_cost_sa_hep_m %>%
+  pivot_longer(cols = starts_with("DIF_"),
+               names_to = "DIF")
+```
+
+```{r}
+df_cost_sa_hep_f <- df_cost_sa_hep %>% filter(SEX =="F")
+```
+
+
+```{r}
+df_cost_sa_hep_f <- df_cost_sa_hep_f %>%
+  select(!c(starts_with("I"), starts_with("o"))) %>%
+  mutate(across(starts_with("T_") , ~ as.numeric(.x))) 
+```
+
+```{r}
+df_cost_sa_hep_f <- df_cost_sa_hep_f  %>%
+  mutate(across(starts_with("T_"), ~ .x - lag(.x))) %>%
+  rename_with(~paste0("DIF_", .x), .cols = starts_with("T_")) %>%
+  filter(!YEAR =="2014")
+```
+
+```{r}
+df_cost_sa_hep_f_long <- df_cost_sa_hep_f %>%
+  pivot_longer(cols = starts_with("DIF_"),
+               names_to = "DIF")
+```
+
+
+```{r}
+df_cost_sa_hep_long <- df_cost_sa_hep_m_long %>%
+  bind_rows(df_cost_sa_hep_f_long)
+```
+
+```{r}
+df_cost_sa_hep_long <- df_cost_sa_hep_long %>%
+  mutate(AGE = str_remove(DIF, "DIF_T_"))
+```
+
+```{r}
+df_cost_sa_hep_long <- df_cost_sa_hep_long %>%
+  mutate(SEX_AGE = paste0(SEX, "_", AGE))
+```
+
+
+```{r}
+saveRDS(df_cost_sa_hep_long, "../df/cost/df_cost_sa_hep_long")
+```

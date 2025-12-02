@@ -1,0 +1,247 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+```
+
+
+```{r}
+# make folder all in rds for saving data frame
+
+dir.create("../rds/cost",
+             showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+```{r}
+file_all <- list.files("../xlsx/cost/all", pattern = "xlsx") 
+
+file_all 
+```
+
+
+```{r}
+# read cost_all
+
+df_cost_all <- read_excel(paste0("../xlsx/cost/all/", file_all),
+                          range = cell_limits(c(10, 1), c(79, 3)),
+                   col_names = c("YEAR_jp", "YEAR", "COST"))
+```
+
+```{r}
+df_cost_all <- df_cost_all %>%
+  mutate(YEAR = str_remove_all(YEAR, "\\(|\\)|\\'")) %>%
+  mutate(YEAR = as.numeric(YEAR)) 
+```
+
+```{r}
+df_cost_all <- df_cost_all  %>%
+  mutate(YEAR = case_when(YEAR >= 55 & YEAR <= 99 ~ paste0("19", as.character(YEAR)),
+                          YEAR >= 1  & YEAR <= 9 ~ paste0("200", as.character(YEAR)),
+                          YEAR >= 10 & YEAR <= 25 ~ paste0("20", as.character(YEAR)),
+                          .default = as.character(YEAR)))
+```
+
+
+```{r}
+saveRDS(df_cost_all, "../rds/cost/df_cost_all")
+```
+
+# maybe end here
+
+
+```{r}
+file_dem <- list.files("../xlsx/cost/dem") 
+
+file_dem 
+```
+
+```{r}
+#range <- c("0_14", "15_44", "45_64", "65_", "70_", "75_")
+```
+
+```{r}
+sheet_cost_dem_1 <- excel_sheets("../xlsx/cost/dem/000040112149.xlsx")
+
+sheet_cost_dem_1
+```
+
+```{r}
+sheet_cost_dem_1 <- sheet_cost_dem_1[7:14]
+
+sheet_cost_dem_1
+```
+
+
+```{r}
+  year <-  read_excel("../xlsx/cost/dem/000040112149.xlsx" ,
+                      sheet = "第13表（H20）",
+                      range = cell_limits(c(4, 26), c(4, 26)),
+                      col_names = "YEAR") 
+```
+
+```{r}
+# parse cost dem: only use for parsing 2014-2021
+# path 
+# start sheet stating
+# end sheet starting
+
+parse_cost_dem <- function(path, start, end){
+  
+  range <- c("total","0_14", "15_44", "45_64", "65_", "70_", "75_")
+  
+  sheet <- excel_sheets(path)
+  
+  sheet <- sheet[start:end]
+  
+  list_df <- map2(path, sheet, function(x, y){
+    read_excel(x,
+             sheet = y,
+             range = cell_limits(c(9, 1), c(60, 26)),
+                            col_names = c("NO",
+                                 "DIS_1", "DIS_2",
+                                 "DIS_3",
+                                 "x5",
+                                 paste0("T_", range),
+                                 paste0("I_", range),
+                                 paste0("O_", range))) %>%
+      return()
+  })
+  
+  list_df <- map(list_df, function(x){ 
+    x %>%
+      fill(c(NO, DIS_1) , .direction = "down")})
+  
+  list_year <- map2(path, sheet, function(x, y){
+    read_excel(x ,
+                      sheet = y,
+                      range = cell_limits(c(4, 26), c(4, 26)),
+                      col_names = c("YEAR")) %>% pull(YEAR) %>% return() })
+  
+  
+  list_df <- map2(list_df, list_year, function(x, y){
+    x %>% mutate(YEAR = y) %>%
+      mutate(YEAR_jp = str_remove(YEAR, "\\(.+\\)")) %>%
+      mutate(YEAR = str_extract(YEAR, "(?<=\\().+(?=\\))"))
+    })
+  
+  
+  list_df <- map2(list_df, sheet, function(x, y){
+    x %>% mutate(SHEET = y) %>%
+      mutate(TABLE = str_remove(SHEET, "（.+）")) %>%
+      select(!starts_with("x"))
+  })
+
+  list_df %>% list_rbind() %>% return()
+  }
+```
+
+```{r}
+df_cost_dem_1 <- parse_cost_dem("../xlsx/cost/dem/000040112149.xlsx", 7, 14)
+```
+
+
+```{r}
+df_cost_dem_2 <- parse_cost_dem("../xlsx/cost/dem/000040214330.xlsx", 1, 1)
+```
+
+```{r}
+df_cost_dem <- df_cost_dem_1 %>% bind_rows(df_cost_dem_2)
+```
+
+```{r}
+saveRDS(df_cost_dem, "../rds/cost/df_cost_dem")
+```
+
+
+
+
+# parse sa
+
+```{r}
+file_sa <- list.files("../xlsx/cost/sa")
+
+file_sa
+```
+
+
+
+```{r}
+# read cost_dem
+
+# does not read special code
+
+parse_cost_sa <- function(path){
+  
+  range <- c("total","0_14", "15_44", "45_64", "65_", "70_", "75_")
+  
+  sheet <- excel_sheets(path)
+  
+  list_df <- map2(path, sheet, function(x, y){
+    read_excel(x,
+             sheet = y,
+             range = cell_limits(c(9, 1), c(60, 26)),
+                            col_names = c("NO",
+                                 "DIS_1", "DIS_2",
+                                 "DIS_3",
+                                 "x5",
+                                 paste0("T_", range),
+                                 paste0("I_", range),
+                                 paste0("O_", range))) %>%
+      return()
+  })
+  
+  list_df <- map(list_df, function(x){ 
+    x %>%
+      fill(c(NO, DIS_1) , .direction = "down")})
+  
+  list_year <- map2(path, sheet, function(x, y){
+    read_excel(x ,
+                      sheet = y,
+                      range = cell_limits(c(4, 26), c(4, 26)),
+                      col_names = c("YEAR")) %>% pull(YEAR) %>% return() })
+  
+  
+  list_df <- map2(list_df, list_year, function(x, y){
+    x %>% mutate(YEAR = y) %>%
+      mutate(YEAR_jp = str_remove(YEAR, "\\(.+\\)")) %>%
+      mutate(YEAR = str_extract(YEAR, "(?<=\\().+(?=\\))"))
+    })
+  
+  
+  list_df <- map2(list_df, sheet, function(x, y){
+    x %>% mutate(SHEET = y) %>%
+      mutate(TABLE = str_remove(SHEET, "（.+）")) %>%
+      mutate(SEX_jp = str_extract(SHEET, "男|女")) %>%
+      mutate(SEX = case_when(SEX_jp == "男" ~ "M",
+                             SEX_jp == "女" ~ "F")) %>%
+      select(!starts_with("x")) %>%
+      mutate(across(everything(), ~as.character(.x) ))　
+  })
+  
+
+  list_df %>% list_rbind() %>% return()
+  }
+```
+
+```{r}
+df_cost_sa <- map(paste0("../xlsx/cost/sa/",file_sa),
+                  parse_cost_sa) %>% list_rbind()
+```
+
+
+```{r}
+saveRDS(df_cost_sa, "../rds/cost/df_cost_sa")
+
+```
+

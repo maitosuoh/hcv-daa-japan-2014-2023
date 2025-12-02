@@ -1,0 +1,92 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+# create directories
+
+dir.create("../pdf", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+# dir.create("../xlsx/all", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+```{r}
+url <- "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/kenkou_iryou/kenkou/kekkaku-kansenshou/kanen/kangan/iryouhijyosei.html"
+
+result <- getURL(url,verbose=TRUE,ftp.use.epsv=TRUE, dirlistonly = TRUE)
+
+
+
+# https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/kenkou_iryou/kenkou/kekkaku-kansenshou/kanen/kangan/iryouhijyosei.html
+```
+
+
+```{r}
+result %>% read_html() %>% html_structure()
+```
+
+
+```{r}
+# div.m-grid
+
+result %>% read_html() %>% html_elements("div.m-grid") %>% as.character()
+```
+
+
+```{r}
+# div.m-grid
+
+result %>% read_html() %>% html_elements("div.m-grid") %>% as.character()
+```
+
+
+```{r}
+html_elements(read_html(result), "div.m-grid")[8] %>% html_elements("a") 
+
+# %>% html_attrs()
+
+#result %>% read_html() %>% html_elements("div.m-grid")
+```
+
+```{r}
+hep_url_html <- html_elements(read_html(result), "div.m-grid")[8] %>% html_elements("a") %>%
+  as.character() %>%
+  str_extract("/content/.+pdf")
+```
+
+```{r}
+# https://www.mhlw.go.jp/content/10900000/r05josei_taisyou.pdf
+
+hep_url <- paste0("https://www.mhlw.go.jp", hep_url_html) 
+
+hep_url
+```
+
+```{r}
+hep_file <- hep_url %>%
+  str_extract("(?<=10900000\\/).+")
+
+hep_file
+```
+```{r}
+hep_path <- paste0("../pdf/", hep_file)
+```
+
+
+```{r}
+# use this !!!
+for (i in 1:length(hep_url)){
+  download.file(hep_url[i], hep_path[i], mode = "wb")
+  print(paste(hep_file[i], "downloaded"))
+}
+```

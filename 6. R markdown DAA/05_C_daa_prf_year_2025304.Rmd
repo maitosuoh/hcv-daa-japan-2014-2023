@@ -1,0 +1,262 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(ggrepel)
+library(broom)
+library(glue)
+library(ggtext)
+
+library(sf)
+
+library(patchwork)
+library(scales)
+
+library(ggh4x)
+```
+
+```{r}
+# make df SHEET
+
+#dir.create("../df/hcv", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+list.files("../df/filter") 
+```
+
+```{r}
+df_daa_prf_pts <- readRDS("../df/daa/analysis/df_daa_prf_pts")
+```
+
+```{r}
+#df_daa_dem_agg <- readRDS("../df/filter/df_daa_dem_agg")
+```
+
+
+
+
+```{r}
+df_daa_dem_pts <- readRDS("../df/daa/analysis/df_daa_dem_pts")
+```
+
+```{r}
+df_pop_prf <- readRDS("../rds/pop/prf/df_pop_prf")
+```
+
+```{r}
+p_jp_reg <- readRDS("../plot/p_jp_reg")
+```
+
+
+# prepare data for individual prf x year 
+
+
+```{r}
+df_daa_prf_pts <- df_daa_prf_pts %>%
+   mutate(PRF_join = paste0(PRF_jp ,"_" , YEAR_str))
+
+df_daa_prf_pts
+```
+
+
+```{r}
+df_pop_prf <- df_pop_prf %>%
+  filter(PRF_jp != "total") %>%
+  mutate(PRF_join = paste0(PRF_jp ,"_" , YEAR))
+
+df_pop_prf
+```
+
+```{r}
+df_daa_prf_pts <- df_daa_prf_pts %>%
+  left_join(df_pop_prf %>% select(ALL_total, PRF_join),
+            by = join_by(PRF_join))
+```
+
+# calculate the number of pts for each year and prefecture
+
+```{r}
+df_daa_prf_pts_year <- df_daa_prf_pts %>% 
+  group_by(PRF, iso_3166_2, YEAR_str, PRF_join) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ungroup() %>%
+  left_join(df_pop_prf %>% select(ALL_total, PRF_join),
+            by = join_by(PRF_join))
+```
+
+
+```{r}
+df_daa_prf_pts_year <- df_daa_prf_pts_year %>%
+  mutate(ALL_mm = ALL_total/1000) 
+```
+
+
+```{r}
+df_daa_prf_pts_year
+```
+
+
+# individual 
+
+```{r}
+df_prf_reg_year <-   df_daa_prf_pts_year %>%
+  select(PRF, YEAR_str, SUM, ALL_mm) %>%
+  nest(data = -YEAR_str) %>%
+  mutate(
+    fit = purrr::map(data, ~ lm(SUM ~ ALL_mm, data = .x)),
+    tidied = purrr::map(fit, tidy),
+    glanced = purrr::map(fit, glance),
+    augmented = purrr::map(fit, augment)
+  )
+```
+
+```{r}
+df_prf_reg_year_tidy <- df_prf_reg_year %>% unnest(tidied)
+
+df_prf_reg_year_tidy
+```
+
+```{r}
+df_prf_reg_year_wide <- df_prf_reg_year_tidy %>%
+  select(YEAR_str, term, estimate) %>%
+  mutate(term = str_remove_all(term, "\\(|\\)")) %>%
+  pivot_wider( names_from = term,  values_from = estimate)
+
+  
+df_prf_reg_year_wide
+```
+
+
+```{r}
+df_reg_year_label <- df_prf_reg_year %>% unnest(glanced) %>%
+  left_join(df_prf_reg_year_wide,
+            by = join_by(YEAR_str)) %>%
+    mutate(label = glue("*y* = {round(ALL_mm, 0)}*x* + {round(Intercept, 0)}<br>*p* < 0.001<br> *R*<sup>2</sup><sub>adj</sub> = {round(adj.r.squared, 2)}"))  %>%
+  mutate(label = str_replace(label, "0.9$", "0.90"))
+  
+  df_reg_year_label
+```
+
+
+
+```{r}
+df_daa_prf_pts_year <- df_daa_prf_pts_year %>%
+  mutate(label = PRF) %>%
+  mutate(label = case_when(PRF %in% c("Tokyo", "Kanagawa", "Chiba", "Saitama",
+                                      "Aichi",
+                                      "Osaka",
+                                      "Fukuoka") & as.numeric(YEAR_str) <= 2014 ~ PRF,
+                           PRF %in% c("Tokyo", "Kanagawa", "Chiba", "Saitama",
+                                      "Aichi",
+                                      "Osaka", "Hyogo",
+                                      "Fukuoka") & as.numeric(YEAR_str) <= 2019 &  as.numeric(YEAR_str) >= 2015  ~ PRF,
+                           PRF %in% c("Tokyo", "Kanagawa", 
+                                      "Aichi",
+                                      "Osaka", 
+                                      "Fukuoka") & as.numeric(YEAR_str) >= 2020 ~ PRF,
+                           .default = NA)) 
+```
+
+
+
+```{r}
+ p1 <- df_daa_prf_pts_year %>%
+  left_join(df_daa_prf_pts %>% distinct(iso_3166_2, REG),
+            by = join_by(iso_3166_2)) %>%
+  ggplot(aes(ALL_mm, SUM))+
+  geom_point(aes(fill = REG), colour = "black", alpha = 0.7,
+             shape = 21)+
+   scale_fill_manual(values = c("#1f77b4",
+                               "#bcbd22",
+                               "#e377c2",
+                               "#7f7f7f",
+                               "#ff7f0e",
+                               "#2ca02c",
+                               "#9467bd",
+                               "#d62728"),
+                      name = "Region")+
+    geom_line(stat = "smooth",
+              method = "lm",
+              linewidth = 0.5,
+              linetype = 1,
+              alpha = 0.7,
+              colour = "#17becf")+
+  geom_text_repel(
+                  aes(label = label),
+                  max.overlaps = 123,
+                  size = 2.6,
+                  segment.size = 0.3, segment.alpha = 0.7,
+                  seed = 69)+
+  
+  geom_richtext(data = df_reg_year_label,
+                aes(x = 0, y = 8000, label = label),
+                size = 2.8,
+                hjust = 0, vjust = 1,
+                fill = NA, label.color = NA)+
+  facet_wrap2(vars(YEAR_str), 
+              axes = "all",
+              remove_labels = "all")+
+  scale_x_continuous(#expand = c(0, 0),
+                     breaks = seq(0, 15, 5),
+                     limits = c(0, 15))+
+  scale_y_continuous(#expand = c(0, 0),
+                     breaks = seq(0, 8000, 2000),
+                     limits = c(0, 8000),
+                     labels = label_comma())+
+  labs(x = "Population of prefecture (10<sup>6</sup>)",
+       y = "Treated people (n)")+
+  theme_classic()+
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.x = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none")
+
+ p1
+```
+
+```{r}
+p_jp_reg <- p_jp_reg +
+  guides(fill = guide_legend(override.aes = list(linewidth = 0.1,
+                                                 colour = "black",
+                                                 alpha = 1) ) )+
+  theme(legend.position = "right",
+        legend.key.size = unit(5, "mm"),
+        legend.margin = margin(0,0, 0, 0, unit = "mm"))
+
+p_jp_reg
+```
+
+
+```{r}
+p1 <- p1 + inset_element(p_jp_reg, 0.5, 0, 1, 0.3)
+
+
+#ggsave("../figure/Fig6.pdf", p1, width = 180, height = 235, unit = "mm")
+
+#ggsave("../figure/Fig6.jpg", p1, width = 175, height = 235, unit = "mm",
+#       dpi = 450)
+
+```
+
+```{r}
+ggsave("../figure/Fig6.pdf", p1, width = 180, height = 235, unit = "mm")
+```
+
+
+# end of run

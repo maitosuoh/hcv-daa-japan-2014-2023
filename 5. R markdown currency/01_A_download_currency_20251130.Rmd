@@ -1,0 +1,88 @@
+---
+title: "Currency"
+output: html_document
+date: "2025-11-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(RCurl)
+library(tidyverse)
+library(XML)
+library(xml2)
+library(rvest)
+```
+
+```{r}
+# create directories
+
+dir.create("../pdf", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+dir.create("../pdf/boj", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+
+```{r}
+# xlsx files for oral drug, outpatient 
+#　内服　外来 院外　制年齢
+
+# 2014
+# "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2014.pdf",
+#
+
+# 2015
+# "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2015.pdf",
+#
+# 2016
+# "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2016.pdf",
+
+# 2017
+# "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2017.pdf",
+#
+# 2018
+# "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2018.pdf",
+#
+# 2019 
+# https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2019.pdf
+#
+# 2020
+# https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2020.pdf
+
+# 2021
+# https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2021.pdf
+
+# 2022
+# https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2022.pdf
+
+# 2023
+# https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2023.pdf
+
+url_boj <- c("https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2014.pdf",
+             "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2015.pdf",
+             "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2016.pdf",
+             "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2017.pdf",
+             "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2018.pdf",
+             "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2019.pdf",
+             "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2020.pdf",
+             "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2021.pdf",
+             "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2022.pdf",
+             "https://www.boj.or.jp/statistics/market/forex/fxdaily/ex2023.pdf")
+
+```
+
+```{r}
+file_boj <- url_boj %>% str_extract("ex[:digit:]+\\.pdf")
+
+path_boj <- paste0("../pdf/boj/", file_boj)
+```
+
+```{r}
+for (i in 1:length(url_boj)){
+  download.file(url_boj[i], path_boj[i], mode = "wb")
+  print(paste(file_boj[i], "downloaded"))
+}
+```
+

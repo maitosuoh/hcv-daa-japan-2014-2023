@@ -1,0 +1,61 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+library(pdftools)
+```
+
+```{r}
+# create directories
+
+dir.create("../split", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+pdf_file <- list.files("../pdf")
+
+pdf_file
+```
+```{r}
+pdf_file <- pdf_file[pdf_file != "josei-01.pdf"]
+
+pdf_file
+```
+
+
+```{r}
+pdf_path <- paste0("../pdf/", pdf_file)
+
+pdf_path
+```
+
+```{r}
+split_out <- paste0("../split/", pdf_file)
+
+split_out
+```
+
+
+```{r}
+# split pdf file and save the last page which contains annual aggregated table
+
+for (i in 1:length(pdf_file)){
+  
+  last_page <- pdf_info(pdf_path[i])$pages  
+  
+  pdf_subset(pdf_path[i], 
+             pages = last_page,
+             output = split_out[i])
+  
+  print(paste(pdf_file[i], "completed" ))
+}
+```

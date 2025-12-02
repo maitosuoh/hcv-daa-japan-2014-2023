@@ -1,0 +1,420 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+```
+
+```{r}
+# make df SHEET
+
+#dir.create("../df/hcv", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+daa_file <- list.files("../df/filter") 
+daa_file
+```
+
+```{r}
+df_daa_dem_total <- readRDS("../df/daa/analysis/df_daa_dem_total")
+```
+
+
+```{r}
+df_daa_prf <- readRDS("../df/daa/format/df_daa_prf")
+```
+
+```{r}
+df_daa_prf %>% filter(is.na(VALUE)) %>% View()
+```
+
+
+# df_dem_daa
+
+
+```{r}
+df_daa_prf %>% count(DAA)
+```
+
+
+```{r}
+df_daa_prf %>% count(SHEET)
+```
+
+
+```{r}
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  count(DAA, YEAR_str)
+```
+
+
+```{r}
+# check discordance in combination therapy
+
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("DCV", "ASV", "EBR", "GRZ")) %>%
+  count(DAA, YEAR_str)
+
+# DCV/ASV complete pairs
+# EBR/GRZ needs impution
+```
+
+
+
+```{r}
+# check SHEET category in EBR/GRZ
+
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("EBR", "GRZ")) %>%
+  count(DAA, YEAR_str)
+
+#1 EBR 2018 1 category missing -> impute from GRZ 2018
+
+#2 GRZ 2019 1 cateogry missing & EBR 2019 all missing -> impute 2 caterories in EBR from GRZ
+# unable to fill missing GRZ
+```
+
+
+
+```{r}
+# inspect discrepancies in combination therapy
+
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("DCV", "ASV", "EBR", "GZR")) %>%
+  ungroup() %>%
+  group_by(DAA, YEAR_str) %>%
+  summarise(SUM = sum(TOTAL)) %>% 
+  ungroup() %>%
+  pivot_wider(names_from = DAA, values_from = SUM) %>% View()
+
+#内服　院外　missing in EBR
+```
+
+```{r}
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("EBR", "GZR")) %>%
+  select(SHEET, DAA, YEAR_str, TOTAL) %>%
+  pivot_wider(names_from = DAA, values_from = TOTAL) %>% View()
+
+# outpt_outpr missing in GZR 2019
+# impute from EBR
+```
+
+
+```{r}
+df_daa_prf %>% 
+  distinct(FILE,SHEET, DAA, PRF, YEAR_str, .keep_all = TRUE) %>%
+  filter(DAA %in% c("EBR", "GZR")) %>%
+  select(FILE, SHEET, DAA, PRF, YEAR_str, VALUE) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE) %>% View()
+```
+
+
+```{r}
+df_dem_daa %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("DCV", "ASV", "EBR", "GRZ")) %>%
+  group_by(DAA, YEAR_str, SHEET) %>%
+  summarise(SUM = sum(TOTAL)) %>% 
+  ungroup() %>%
+  pivot_wider(names_from = c( SHEET), values_from = SUM) %>% View()
+```
+
+
+```{r}
+# create individual ID by combining file, sheet, daa
+df_daa_prf <- df_daa_prf %>%
+  mutate(ID = str_c(FILE, SHEET, PRF, DAA, sep = "_"))
+
+df_daa_prf %>% distinct(ID) %>% nrow()
+```
+
+
+```{r}
+# df for row update
+
+df_daa_fill <- df_daa_prf %>%
+  filter(DAA %in% c("DCV" , "ASV", "EBR", "GZR")) %>%
+  select(FILE, SHEET, DAA, PRF, YEAR_str, VALUE) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE)
+```
+
+
+```{r}
+df_dcv_asv_fill <- df_daa_prf %>%
+  filter(DAA %in% c("DCV" , "ASV")) %>%
+  select(FILE, SHEET, DAA, PRF, YEAR_str, VALUE) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE, values_fill = 0) %>%
+  filter( ( DCV != 0  & ASV == 0) |
+            (DCV == 0 & ASV != 0) )
+  
+```
+
+```{r}
+df_dcv_asv_imp <- df_dcv_asv_fill %>%
+  mutate(DCV = case_when(DCV == 0 & ASV > 0 ~ ASV/2,
+                         .default = DCV)) %>%
+  mutate(ASV = case_when(ASV == 0 & DCV > 0 ~ DCV*2,
+                         .default = ASV))
+```
+
+```{r}
+df_dcv_asv_long <- df_dcv_asv_imp %>%
+  pivot_longer(cols = c(ASV, DCV),
+               names_to = "DAA",
+               values_to = "VALUE") %>%
+  mutate(ID = str_c(FILE, SHEET, PRF, DAA, sep = "_"))
+```
+
+```{r}
+df_ebr_gzr_fill <- df_daa_prf %>%
+  filter(DAA %in% c("EBR" , "GZR")) %>%
+  select(FILE, SHEET, DAA, PRF, YEAR_str, VALUE) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE, values_fill = 0) %>%
+  filter( ( EBR != 0  & GZR == 0) |
+            (EBR == 0 & GZR != 0) )
+```
+
+```{r}
+df_ebr_gzr_imp <- df_ebr_gzr_fill %>%
+  mutate(EBR = case_when(EBR == 0 & GZR > 0 ~ GZR/2,
+                         .default = EBR))
+```
+
+```{r}
+df_ebr_gzr_long <- df_ebr_gzr_imp %>%
+  pivot_longer(cols = c(EBR, GZR),
+               names_to = "DAA",
+               values_to = "VALUE") %>%
+  mutate(ID = str_c(FILE, SHEET, PRF, DAA, sep = "_"))
+```
+
+
+```{r}
+# check ID in DCV ASV
+# complete match for row update
+
+df_daa_prf %>% filter(ID %in% df_dcv_asv_long$ID) %>% nrow()
+```
+
+
+```{r}
+df_daa_prf_imp <- df_daa_prf %>%
+  rows_update(df_dcv_asv_long %>% select(VALUE, ID), by = "ID") 
+```
+
+
+```{r}
+df_daa_prf %>% filter(ID %in% df_ebr_gzr_long$ID) %>% nrow()
+```
+
+```{r}
+id_eg_row_update <- df_daa_prf %>% filter(ID %in% df_ebr_gzr_long$ID) %>% pull (ID)
+
+length(id_eg_row_update)
+```
+
+
+```{r}
+id_eg_row_bind <- df_ebr_gzr_long %>% filter(! ID %in% id_eg_row_update) %>% pull (ID)
+
+length(id_eg_row_bind)
+```
+
+```{r}
+# row update first 
+
+df_daa_prf_imp <- df_daa_prf_imp %>%
+  rows_update(df_ebr_gzr_long %>%
+                filter(ID %in% id_eg_row_update) %>%
+                select(VALUE, ID), by = "ID") 
+```
+
+```{r}
+# We need COST_per (and TOTAL) from the original data frame
+
+df_ebr_gzr_long %>% filter( ID %in% id_eg_row_bind) %>%
+  count(YEAR_str, DAA, SHEET)
+```
+
+```{r}
+df_ebr_gzr_long %>% filter( ID %in% id_eg_row_bind) %>% View()
+```
+
+
+```{r}
+# check original daraframe 
+
+df_daa_prf %>% filter(YEAR_str %in% c("2018", "2019") & DAA == "EBR") %>% 
+  count(YEAR_str, DAA, SHEET, COST_per)
+```
+
+```{r}
+# check original daraframe 
+
+df_daa_dem_total %>% filter(YEAR_str %in% c("2018", "2019") & DAA_ind == "EBR") %>% 
+  count(YEAR_str, DAA, SHEET, COST_per)
+```
+
+```{r}
+df_daa_dem_total %>% filter(DAA_ind == "GZR") %>% 
+  count(YEAR_str, DAA, SHEET, COST_per)
+```
+
+```{r}
+df_daa_dem_total %>% filter(DAA_ind == "EBR") %>% 
+  count(YEAR_str, DAA, SHEET, COST_per, COST_code)
+```
+
+
+```{r}
+df_ebr_gzr_rb <- df_ebr_gzr_long %>%
+  select(!ID) %>%
+  mutate(ID = str_c(SHEET, YEAR_str, DAA, sep = "_"))%>%
+  left_join(df_daa_dem_total %>%
+              select(SHEET,
+                     starts_with("CLASS"),
+                     starts_with("DRUG"),
+                     COST_code, COST_per,
+                     GEN, TOTAL, UNIT,
+                     starts_with("YEAR"),
+                     DAA_ind) %>%
+              rename(DAA = "DAA_ind") %>%
+              mutate(TYPE = "prf") %>%
+              mutate(ID = str_c(SHEET, YEAR_str, DAA, sep = "_")) %>%
+              distinct(ID, .keep_all = TRUE) %>%
+              select(!c(SHEET, YEAR_str, DAA)),
+            by = join_by(ID))
+```
+
+```{r}
+df_daa_prf_agg <- df_daa_prf_imp %>%
+  bind_rows(df_ebr_gzr_rb)
+```
+
+
+```{r}
+df_daa_prf_agg <- df_daa_prf_agg %>%
+  rows_update(df_daa_prf %>% distinct(iso_3166_2, PRF, PRF_jp) , by = "PRF") %>%
+  select(!ID)
+```
+
+
+```{r}
+df_daa_prf_agg <- df_daa_prf_agg %>%
+  mutate(DAA_ind = DAA) %>%
+  mutate(DAA = case_when(DAA %in% c("DCV", "ASV") ~ "DCV/ASV",
+                         DAA %in% c("EBR", "GZR") ~ "EBR/GZR",
+                         .default = DAA)) %>%
+  mutate(COST_total = COST_per * VALUE)
+```
+
+
+```{r}
+# total
+
+df_daa_prf_agg %>%
+  group_by(PRF, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)) %>%
+  ggplot(aes(PRF, SUM))+
+  geom_col()+
+  facet_grid(rows = vars(YEAR_str), scales = "free_y")+
+  theme_classic()+
+  theme(strip.background = element_blank(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+
+```{r}
+df_daa_prf_agg %>%
+  filter(DAA == "DCV/ASV") %>%
+  group_by(PRF, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)) %>%
+  ggplot(aes(PRF, SUM))+
+  geom_col()+
+  facet_grid(rows = vars(YEAR_str), scales = "free_y")+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+
+```{r}
+df_daa_prf_agg %>%
+  filter(DAA == "SOF/LDV") %>%
+  group_by(PRF, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)) %>%
+  ggplot(aes(PRF, SUM))+
+  geom_col()+
+  facet_grid(rows = vars(YEAR_str), scales = "free_y")+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+
+```{r}
+df_daa_prf_agg %>%
+  filter(DAA == "GLE/PIB") %>%
+  group_by(PRF, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)) %>%
+  ggplot(aes(PRF, SUM))+
+  geom_col()+
+  facet_grid(rows = vars(YEAR_str), scales = "free_y")+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+# spend total pref
+
+
+```{r}
+df_daa_prf_agg %>% group_by(PRF) %>%
+  summarise(SUM = sum(COST_total)) %>%
+  slice_max(SUM, n= 10)
+```
+
+```{r}
+df_daa_prf_agg %>% group_by(DAA, PRF, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)) %>%
+  filter(PRF == "Tokyo") %>%
+  ggplot(aes(YEAR_str, SUM, group = DAA, colour = DAA))+
+  geom_line()+
+  theme_classic()
+```
+
+```{r}
+df_daa_prf_agg %>% group_by(DAA, PRF, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)) %>%
+  filter(PRF == "Osaka") %>%
+  ggplot(aes(YEAR_str, SUM, group = DAA, colour = DAA))+
+  geom_line()+
+  theme_classic()
+```
+
+```{r}
+df_daa_prf_agg %>% group_by(DAA, PRF, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)) %>%
+  filter(PRF == "Fukuoka") %>%
+  ggplot(aes(YEAR_str, SUM, group = DAA, colour = DAA))+
+  geom_line()+
+  theme_classic()
+```
+
+```{r}
+saveRDS(df_daa_prf_agg, "../df/daa/analysis/df_daa_prf_agg")
+```
+
