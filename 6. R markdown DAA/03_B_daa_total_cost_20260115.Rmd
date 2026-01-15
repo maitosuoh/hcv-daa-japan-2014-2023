@@ -1,0 +1,887 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(cowplot)
+library(patchwork)
+library(ggtext)
+library(scales)
+```
+
+```{r}
+# make df folder
+
+dir.create("../figure", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+# make df folder
+
+dir.create("../df/daa/analysis", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+df_daa_total_imp <- readRDS("../df/daa/analysis/df_daa_total_imp")
+```
+
+```{r}
+df_boj <- readRDS("../rds/boj/df_boj")
+```
+
+```{r}
+df_cost_all <- readRDS("../rds/cost/df_cost_all")
+```
+
+
+```{r}
+# aggregate combination therapy
+
+df_daa_total_imp <- df_daa_total_imp %>%
+  mutate(DAA_ind = DAA) %>%
+  mutate(DAA = case_when(DAA %in% c("DCV", "ASV") ~ "DCV/ASV",
+                         DAA %in% c("EBR", "GZR") ~ "EBR/GZR",
+                         .default = DAA))
+```
+
+```{r}
+df_daa_total_imp <- df_daa_total_imp %>%
+  mutate(DAA = factor(DAA, levels = c("DCV/ASV",
+                                      "SOF/LDV",
+                                      "SOF",
+                                      "OBV/PTV/r",
+                                      "EBR/GZR",
+                                      "GLE/PIB",
+                                      "SOF/VEL")))
+```
+
+
+```{r}
+df_daa_total_imp <- df_daa_total_imp %>%
+  mutate(COST_total = COST_per * TOTAL) %>%
+  mutate(COST_ind = COST_per * VALUE)
+```
+
+```{r}
+df_daa_total_imp %>%
+  count(YEAR_str, DAA_ind)
+```
+
+
+```{r}
+# total single bar chart
+
+df_daa_total_imp %>% 
+  group_by(CLASS_code, DAA) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%
+  ggplot(aes( SUM, CLASS_code, fill = DAA)) +
+  geom_col()+
+  scale_x_continuous(expand = c(0, 0),
+                     limits = c(0, 1200),
+                     breaks = seq(0, 1200, 200))+
+  labs(y = "CLASS",
+       x = "Total cost (billion $)")+
+  theme_classic()
+```
+
+```{r}
+# pie chart for visualising proportions
+
+df_daa_total_imp %>% 
+  group_by(CLASS_code, DAA) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%
+  ggplot(aes(x = "" , y = SUM, fill = DAA)) +
+  geom_bar(stat = "identity", width = 1, colour = "white")+
+  coord_polar("y", start=0)+
+  theme_void()+
+  scale_fill_brewer(palette="Set2")
+```
+
+```{r}
+# 
+
+df_daa_total_imp %>% 
+  group_by(DAA) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%
+  ggplot(aes(fct_reorder(DAA, SUM), SUM, fill = DAA)) +
+  geom_col()+
+  labs(x = "Year",
+       y = "Total cost (billion JPY)")+
+  theme_classic()
+```
+
+```{r}
+# horiontal
+
+df_daa_total_imp %>% 
+  group_by(DAA) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%
+  ggplot(aes(SUM, fct_reorder(DAA, SUM), fill = DAA)) +
+  geom_col(width = 0.7)+
+  scale_x_continuous(expand = c(0, 0),
+                     breaks = seq(0, 500, 100),
+                     limits = c(0, 500)) +
+  labs(x = "Year",
+       y = "Total cost (billion JPY)")+
+  theme_classic()+
+  theme(axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.position = "none")
+
+```
+
+```{r}
+df_daa_total_imp %>% count(DAA)
+```
+
+```{r}
+df_daa_total_imp %>% 
+  group_by(DAA) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%
+  mutate(TOTAL = sum(SUM)) %>%
+  mutate(PCT = SUM/TOTAL * 100)
+```
+
+```{r}
+# total DAA cost in JPY
+df_daa_total_imp %>% 
+  left_join(df_boj %>% select(YEAR, USD_JPY),
+            by=join_by(YEAR_str == YEAR)) %>%
+#  mutate(COST_usd = COST_total/USD_JPY) %>%
+#  group_by(DAA) %>%
+  summarise(SUM = sum(COST_total)/10^9) 
+```
+
+
+```{r}
+# total DAA cost in USD
+
+df_daa_total_imp %>% 
+  left_join(df_boj %>% select(YEAR, USD_JPY),
+            by=join_by(YEAR_str == YEAR)) %>%
+  mutate(COST_usd = COST_total/USD_JPY) %>%
+#  group_by(DAA) %>%
+  summarise(SUM = sum(COST_usd)/10^9) 
+```
+
+```{r}
+df_daa_total_imp %>% 
+  group_by(DAA) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%
+  mutate(TOTAL = sum(SUM)) %>%
+  mutate(PCT = SUM/TOTAL * 100) %>%
+  mutate(LABEL = case_when(PCT >= 10 ~ round(PCT, digits  = 0),
+                           PCT < 10 ~ round(PCT,digits =  1))) # %>%
+#  mutate(LABEL = paste0(round(PCT), "%"))
+```
+
+
+```{r}
+p1_c <- df_daa_total_imp %>% 
+  group_by(DAA) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%
+  mutate(TOTAL = sum(SUM)) %>%
+  mutate(PCT = SUM/TOTAL * 100) %>%
+  mutate(LABEL = case_when(PCT >= 10 ~ round(PCT, digits  = 0),
+                           PCT < 10 ~ round(PCT,digits =  1))) %>%
+  mutate(LABEL = paste0(LABEL, "%")) %>%
+  ggplot(aes(SUM, fct_reorder(DAA, SUM), fill = DAA)) +
+  geom_col(width = 0.6)+
+  scale_fill_manual(values = c("#1f77b4",
+                               "#9467bd",
+                               "#17becf",
+                              "#d62728",
+                              "#2ca02c",
+                              "#ff7f0e",
+                         "#7f7f7f"))+
+  geom_text(aes(x = SUM+5, label = LABEL), size = 2.8, hjust = 0)+
+  scale_x_continuous(expand = c(0, 0),
+                     breaks = c(seq(0, 500, 50) ),
+                     limits = c(0, 500),
+                     label = label_number()) +
+  coord_cartesian(clip = "off")+
+  labs(tag = "C",
+       x = "<b>Cost (10<sup>9</sup> JPY)</b>",
+       y = "DAA")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),,
+        axis.title.x = element_markdown(size = 8, colour = "black"),
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0,0,0,0,unit =  "mm"))
+
+p1_c
+```
+
+
+
+```{r}
+df_daa_total_imp %>%
+  distinct(DAA_ind, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  group_by(DAA, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%  
+   ggplot(aes(YEAR_str, SUM)) +
+  geom_col(width = 0.7)+
+    scale_y_continuous(expand = c(0, 0),
+                     breaks = seq(0, 500, 100),
+                     limits = c(0, 500)) +
+  labs(x = "Year",
+       y = "Total cost (billion JPY)")+
+  theme_classic()+
+   theme(axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"))
+```
+
+
+```{r}
+df_daa_total_imp %>%
+  distinct(DAA_ind, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  ungroup() %>%
+  group_by(DAA, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%  
+  mutate(DAA = factor(DAA, levels = c("OBV/PTV/r",
+                                      "EBR/GZR",
+                                      "SOF/VEL",
+                                      "DCV/ASV",
+                                      "SOF",
+                                      "SOF/LDV",
+                                      "GLE/PIB"))) %>%
+  ggplot(aes(YEAR_str, SUM, fill = DAA)) +
+  geom_col(width = 0.7)+
+    scale_fill_manual(values = c("#D55E00",
+                                  "#009E73",
+                                 "grey60",
+                                 "#0072B2",
+                               "#56BE49",
+                               "#CC79A7",
+                             
+                              "#E69F00"))+
+    scale_y_continuous(expand = c(0, 0),
+                     breaks = seq(0, 500, 100),
+                     limits = c(0, 500)) +
+  labs(x = "Year",
+       y = "Total cost (billion JPY)")+
+  theme_classic()+
+   theme(axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"))
+```
+
+```{r}
+df_daa_dem_all <- df_daa_total_imp %>%
+  distinct(DAA_ind, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  ungroup() %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%
+  mutate(DAA = "Total")
+
+df_daa_dem_all
+```
+
+
+```{r}
+df_daa_total_imp %>%
+  distinct(DAA_ind, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  ungroup() %>%
+  group_by(DAA, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%  
+  bind_rows(df_daa_dem_all) %>%
+  mutate(DAA = factor(DAA, levels = c("Total",
+                                      "DCV/ASV",
+                                      "SOF",
+                                      "SOF/LDV",
+                                      "OBV/PTV/r",
+                                      "EBR/GZR",
+                                      "GLE/PIB",
+                                      "SOF/VEL"))) %>%
+  ggplot(aes(YEAR_str, SUM, group = DAA, colour = DAA)) +
+  geom_point(size = 1)+
+  geom_line(linewidth = 0.5)+
+    scale_colour_manual(values = c("black",
+                                 "#1f77b4",
+                               "#9467bd",
+                               "#17becf",
+                              "#d62728",
+                              "#2ca02c",
+                              "#ff7f0e",
+                         "#7f7f7f"))+
+    scale_y_continuous(expand = c(0, 0),
+                     breaks = seq(0, 500, 100),
+                     limits = c(0, 500)) +
+  labs(x = "Year",
+       y = "Total cost (billion $)")+
+  theme_classic()+
+   theme(axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"))
+```
+
+```{r}
+cs_cost_max <- df_daa_total_imp %>%
+  distinct(DAA_ind, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  ungroup() %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%
+  ungroup() %>%
+  mutate(CS = cumsum(SUM)) %>%
+  filter(CS == max(CS)) %>% pull(CS)
+
+cs_cost_max
+```
+
+
+
+```{r}
+df_daa_dem_cost_all <- df_daa_total_imp %>%
+  distinct(DRUG_name, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  ungroup() %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM = sum(COST_total)/10^9)
+
+df_daa_dem_cost_all
+```
+
+
+```{r}
+df_daa_total_imp %>%
+  distinct(DRUG_name, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  ungroup() %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%
+  left_join(df_boj, by = join_by(YEAR_str == YEAR) ) %>%
+  mutate(SUM_usd = SUM/USD_JPY) %>%
+  relocate(SUM_usd, .after= "SUM") %>%
+  mutate(CS_jpy = cumsum(SUM)) %>%
+  mutate(CS_usd = cumsum(SUM_usd)) %>%
+  select(YEAR_str, SUM, SUM_usd, CS_jpy, CS_usd)
+```
+
+
+```{r}
+p1_a1 <- df_daa_dem_cost_all %>%
+  mutate(DAA = "Annual") %>%
+    mutate(YEAR_str = as.numeric(YEAR_str)) %>%
+  ggplot(aes(YEAR_str, SUM, group = DAA))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+   scale_x_continuous(breaks = seq(2014, 2023, 2),
+                     limits = c(2014, 2023))+
+  scale_y_continuous(# expand = c(0, 0),
+                     breaks = c(seq(0, 500, 100)),
+                     limits = c(0, 500),
+                     label = label_comma()) +
+  geom_text(data = df_daa_dem_cost_all %>%
+                  filter(YEAR_str == "2015") %>%
+                  mutate(label = scales::comma(round(SUM))) %>%
+                  mutate(YEAR_str = as.numeric(YEAR_str)),
+                aes(x = YEAR_str, y = SUM + 500/20, label = label),
+                vjust = 0,
+                size = 2.8,
+                colour = "black",
+                inherit.aes = FALSE)+
+      annotate(geom = "text",
+           x = (2014 + 2023)/2,
+           y = 500,
+           vjust = 0.5,
+           label = "Annual",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+  coord_cartesian(clip = "off")+
+    labs(tag = "A",
+         x = "Year",
+         y = "<b>Cost (10<sup>9</sup> JPY)</b>")+
+  theme_classic()+
+  theme(legend.position = "right")+
+    theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+         axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.spacing.y = unit(0, unit ="mm"),
+        legend.background = element_blank(),
+      plot.margin = margin(0,0,0,0, "mm"))
+
+p1_a1
+```
+
+
+```{r}
+p1_a2 <-  df_daa_dem_cost_all %>%
+  mutate(CUMSUM = cumsum(SUM)/10^3) %>%
+  mutate(DAA = "Cumulative") %>%
+  mutate(YEAR_str = as.numeric(YEAR_str)) %>%
+  ggplot(aes(YEAR_str, CUMSUM, group= DAA))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  geom_text(data = df_daa_dem_cost_all %>%
+                  mutate(CUMSUM = cumsum(SUM)/10^3) %>%
+                  filter(YEAR_str == "2023") %>%
+                  mutate(label = round(CUMSUM, digits = 2),
+                         YEAR_str = as.numeric(YEAR_str)),
+                aes(x = YEAR_str, y = CUMSUM +1.5/20 , label = label),
+                 vjust = 0,
+            hjust = 0.5,
+                size = 2.8,
+                colour = "black",
+                inherit.aes = FALSE)+
+    annotate(geom = "text",
+           x = (2014 + 2023)/2,
+           y = 1.5,
+           vjust =0.5,
+           label = "Cumulative",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+    scale_x_continuous(breaks = seq(2014, 2023, 2),
+                     limits = c(2014, 2023))+
+      scale_y_continuous(#expand = c(0, 0),
+                     breaks = c(seq(0, 1.5, 0.5)),
+                     limits = c(0, 1.5),
+                     label = label_comma()) +
+  coord_cartesian(clip = "off")+
+    labs(
+         x = "Year",
+         y = "<b>Cost (10<sup>12</sup> JPY)</b>")+
+  theme_classic()+
+    theme(
+         axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+         axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.spacing.y = unit(0, unit ="mm"),
+        legend.background =element_blank(),
+      plot.margin = margin(0,0,0,0, "mm"))
+
+p1_a2
+```
+
+```{r}
+df_cost_all %>%
+  filter(as.numeric(YEAR) >= 2014) %>%
+  mutate(TYPE = "All") %>%
+  mutate(COST = COST/10) %>%
+  ggplot(aes(YEAR, COST, group = TYPE)) +
+  geom_line(linewidth = 0.3)+
+  geom_point()+
+  scale_y_continuous(breaks = seq(0, 50000, 10000),
+                     limits = c(0, 50000))+
+  labs(x = "Healthcare cost\n(x10)",
+       y = "Year")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+         axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.spacing.y = unit(0, unit ="mm"),
+        legend.background =element_blank(),
+      plot.margin = unit(c(0, 0, 0, 0), "mm"))
+```
+
+
+
+```{r}
+df_cost_all %>%
+               mutate(YEAR_p = as.numeric(YEAR) -1) %>%
+               mutate(YEAR_id = paste0(YEAR, "_", YEAR_p)) %>%
+               mutate(COST_diff = COST - lag(COST))
+```
+
+
+```{r}
+df_cost_all_diff <- df_cost_all %>%
+  filter(as.numeric(YEAR)>= 2014) %>%
+               mutate(YEAR_p = as.numeric(YEAR) -1) %>%
+               mutate(COST_diff = COST - lag(COST)) %>%
+  select(!YEAR_p) %>%
+  filter(!is.na(COST_diff)) %>%
+  mutate(COST_diff = COST_diff/10)
+```
+
+```{r}
+df_cost_all_diff %>%
+  ggplot(aes(YEAR, COST_diff)) +
+  geom_col(width = 0.7)+
+  theme_classic()+
+  theme(axis.text.x = element_text(size = 8, colour = "black"))
+```
+
+```{r}
+df_daa_dem_all %>%
+  mutate(YEAR_p = as.numeric(YEAR_str) -1) %>%
+  mutate(SUM_diff = SUM - lag(SUM)) %>%
+  filter(YEAR_str != "2014") %>%
+  left_join( df_cost_all_diff ,
+             by = join_by(YEAR_str == YEAR)
+  )
+```
+
+```{r}
+df_daa_dem_all %>%
+  mutate(YEAR_p = as.numeric(YEAR_str) -1) %>%
+  mutate(SUM_diff = SUM - lag(SUM)) %>%
+  filter(YEAR_str != "2014") %>%
+  left_join(df_boj %>% select(YEAR, USD_JPY),
+            by= join_by(YEAR_str == YEAR)) %>%
+  mutate(SUM_diff_usd = SUM_diff/USD_JPY)
+```
+
+
+
+```{r}
+df_daa_dem_diff <- df_daa_dem_all %>%
+  mutate(SUM_diff = SUM - lag(SUM)) %>%
+  filter(YEAR_str != "2014") %>%
+  left_join( df_cost_all_diff ,
+             by = join_by(YEAR_str == YEAR)
+  )
+
+df_daa_dem_diff
+```
+
+```{r}
+df_daa_dem_diff  <- df_daa_dem_diff %>%
+  mutate(DAA = if_else(COST_diff > 0, "p", "n")) %>%
+  bind_rows(df_daa_dem_diff %>%
+              select(!SUM_diff) %>%
+              rename(SUM_diff = "COST_diff") %>%
+              mutate(DAA = "t")) %>%
+  mutate(DAA = factor(DAA, levels = c("t", "p", "n")))
+```
+
+
+
+```{r}
+df_daa_dem_diff %>%
+   mutate(RTO = SUM_diff/COST_diff * 100) %>%
+  mutate(RTO = round(RTO)) %>%
+  mutate(RTO = paste0(RTO, "%")) %>%
+  mutate(YP = case_when(YEAR_str %in%  c("2015", "2016") & DAA != "t" ~ SUM_diff/2,
+                        .default = NA), vjust = 0.5) %>%
+  ggplot()+
+  geom_col(aes(YEAR_str, SUM_diff, fill = DAA), width = 0.7)+
+  scale_fill_manual(values= c("grey",
+                              "#d62728",
+                              "#1f77b4" ),
+                    breaks = c("Total cost change",
+                               "DAA cost increase",
+                               "DAA cost decrease"))+
+  geom_text(aes(x = YEAR_str, y = YP, label = RTO, colour = PN),
+            size = 2.8, colour = "white")+
+  geom_hline(yintercept = 0, linewidth = 0.3, colour = "black")+
+  scale_y_continuous(expand = c(0, 0),
+                     breaks = seq(-1500, 2500, 500),
+                     limits = c(-1500, 2500),
+                     label = label_comma())+
+  labs(tag = "c",
+       x = "Year",
+       y = "Cost change from previous year\n(billion JPY)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        plot.margin = margin(0, 0, 0, 0, "mm"))
+
+```
+
+
+```{r}
+p1_b <- df_daa_dem_all %>%
+  mutate(YEAR_p = as.numeric(YEAR_str) -1) %>%
+  mutate(SUM_diff = SUM - lag(SUM)) %>%
+  filter(! YEAR_str %in% c("2014")) %>%
+  left_join( df_cost_all_diff ,
+             by = join_by(YEAR_str == YEAR) ) %>%
+  mutate(RTO = SUM_diff/COST_diff * 100) %>%
+  mutate(RTO = round(RTO)) %>%
+  mutate(RTO = paste0(RTO, "%")) %>%
+  mutate(YP = case_when(YEAR_str %in%  c("2015", "2016") ~ SUM_diff/2,
+                        .default = NA), vjust = 0.5) %>%
+  mutate(EX = case_when( (SUM_diff >0 & COST_diff >0) |
+                           (SUM_diff < 0 & COST_diff <0)
+                           ~ COST_diff - SUM_diff,
+                         .default = COST_diff)) %>%
+  pivot_longer(cols = c(SUM_diff, EX),
+               names_to = "CC",
+               values_to = "VALUE") %>%
+  mutate(CAT = case_when(CC == "SUM_diff" & VALUE>0 ~ "DAA increase",
+                         CC == "SUM_diff" & VALUE <0 ~ "DAA decrease",
+                         CC == "EX" ~ "Total change")) %>%
+  mutate(CAT = factor(CAT, levels = c("Total change",
+                                      "DAA increase",
+                                      "DAA decrease"))) %>%
+  ggplot(aes(YEAR_str, VALUE, fill = CAT))+
+  geom_col(width = 0.6, position = "stack")+
+    scale_fill_manual(values= c("gray",
+                                "#d62728",
+                              "#1f77b4" ),
+                      name = "Healthcare cost")+
+  geom_hline(yintercept = 0, linewidth = 0.3, colour = "black")+
+  geom_text(aes(x = YEAR_str, y = YP, label = RTO, colour = PN),
+            size = 2.8, colour = "white")+
+  scale_y_continuous(expand = c(0, 0),
+                     breaks = seq(-1500, 2500, 500),
+                     limits = c(-1500, 2500),
+                     label = label_comma())+
+  labs(tag = "B",
+       x = "Year",
+       y = "Change from prior year<br>(10<sup>9</sup> JPY)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black", face = "bold", lineheight = 1.2),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.justification = "left",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.background = element_blank(),
+        legend.key.size = unit(5, "mm"),
+         plot.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm"))
+       # legend.box.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+p1_b 
+```
+
+
+
+```{r}
+df_daa_dem_all %>%
+  mutate(YEAR_p = as.numeric(YEAR_str) -1) %>%
+  mutate(SUM_diff = SUM - lag(SUM)) %>%
+  filter(! YEAR_str %in% c("2014", "2023")) %>%
+  left_join( df_cost_all_diff ,
+             by = join_by(YEAR_str == YEAR) ) %>%
+  mutate(RTO = SUM_diff/COST_diff * 100) %>%
+  mutate(PN = if_else(SUM_diff >0, "p", "n")) %>%
+  mutate(PN = factor(PN, levels = c("p", "n"))) %>%
+  mutate(RTO = SUM_diff/COST_diff * 100) %>%
+  mutate(RTO = round(RTO)) %>%
+  mutate(RTO = paste0(RTO, "%")) %>%
+  mutate(YP = case_when(YEAR_str %in%  c("2015", "2016") ~ SUM_diff/2,
+                        .default = NA), vjust = 0.5) %>%
+  ggplot()+
+  geom_col(aes(YEAR_str, COST_diff), fill = "gray", width = 0.6)+
+  geom_col(aes(YEAR_str, SUM_diff, fill = PN), width = 0.6)+
+  scale_fill_manual(values= c("#d62728",
+                              "#1f77b4" ))+
+  geom_hline(yintercept = 0, linewidth = 0.3, colour = "black")+
+  geom_text(aes(x = YEAR_str, y = YP, label = RTO, colour = PN),
+            size = 2.8, colour = "white")+
+  scale_y_continuous(expand = c(0, 0),
+                     breaks = seq(-1500, 2500, 500),
+                     limits = c(-1500, 2500),
+                     label = label_comma())+
+  labs(tag = "B",
+       x = "Year",
+       y = "Cost change from prior year<br>(10<sup>9</sup> JPY)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.title = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        plot.margin = margin(0, 0, 0, 0, "mm"))
+```
+
+
+
+```{r}
+p1_d <- df_daa_total_imp %>%
+  distinct(DAA_ind, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  ungroup() %>%
+  group_by(DAA, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%  
+  mutate(YEAR_str = as.numeric(YEAR_str)) %>%
+  mutate(DAA = factor(DAA, levels = c(
+                                      "DCV/ASV",
+                                      "SOF/LDV",
+                                      "SOF",
+                                      "OBV/PTV/r",
+                                      "EBR/GZR",
+                                      "GLE/PIB",
+                                      "SOF/VEL"))) %>%
+  ggplot(aes(YEAR_str, SUM, group = DAA, colour = DAA)) +
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+    scale_colour_manual(values = c(
+                                 "#1f77b4",
+                               "#9467bd",
+                               "#17becf",
+                              "#d62728",
+                              "#2ca02c",
+                              "#ff7f0e",
+                         "#7f7f7f"))+
+        annotate(geom = "text",
+           x = (2014 + 2023)/2,
+           y = 250,
+           label = "Annual",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+      scale_x_continuous(
+                     breaks = seq(2014, 2023, 1),
+                     limits = c(2014, 2023)) +
+    scale_y_continuous(
+                     breaks = seq(0, 250, 50),
+                     limits = c(0, 250),
+                     label = label_number()) +
+  labs(tag = "D",
+       x = "Year",
+       y = "<b>Cost (10<sup>9</sup> JPY)</b>")+
+  theme_classic()+
+   theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+         axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+         axis.title.y = element_markdown(size = 8, colour = "black"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.background = element_blank(),
+        legend.margin = margin(0, 0, 0, 0, "mm"),
+       plot.margin = margin(0, 0, 0, 0, "mm"))
+
+p1_d
+```
+
+```{r}
+df_daa_total_imp %>%
+  distinct(DAA_ind, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  ungroup() %>%
+  group_by(DAA, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%  
+  ungroup() %>%
+  group_by(DAA) %>%
+  mutate(CUMSUM = cumsum(SUM)) 
+```
+
+
+```{r}
+p1_e <- df_daa_total_imp %>%
+  distinct(DAA_ind, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  ungroup() %>%
+  group_by(DAA, YEAR_str) %>%
+  summarise(SUM = sum(COST_total)/10^9) %>%  
+  ungroup() %>%
+  group_by(DAA) %>%
+  mutate(CUMSUM = cumsum(SUM)) %>%
+  mutate(YEAR_str = as.numeric(YEAR_str)) %>%
+  ggplot(aes(YEAR_str, CUMSUM, group= DAA, colour = DAA))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  scale_colour_manual(values = c( "#1f77b4",
+                               "#9467bd",
+                               "#17becf",
+                              "#d62728",
+                              "#2ca02c",
+                              "#ff7f0e",
+                         "#7f7f7f"))+
+      annotate(geom = "text",
+           x = (2014 + 2023)/2,
+           y = 500,
+           label = "Cumulative",
+           size = 2.8,
+           colour = "black",
+           fontface = "bold")+
+        scale_x_continuous(
+                     breaks = seq(2014, 2023, 1),
+                     limits = c(2014, 2023)) +
+      scale_y_continuous(
+                     breaks = c(seq(0, 500, 100)),
+                     limits = c(0, 500),
+                     label = label_number()) +
+    labs(tag = "E",
+         x = "Year",
+       y = "<b>Cost (10<sup>9</sup> JPY)<b>")+
+  theme_classic()+
+  theme(legend.position = "right")+
+    theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+          axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+          axis.title.y = element_markdown(size = 8, colour = "black"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.justification = "left",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.background = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm"))
+        #legend.box.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+p1_e
+```
+
+
+```{r}
+p1_a <- p1_a1 + plot_spacer()+ p1_a2 +
+  plot_layout(widths = c(1, 1/100, 1 ))
+
+p1_a 
+```
+
+
+
+```{r}
+p1 <- free(p1_a, side = "l", type = "label") + 
+  free(p1_b, side = "l", type = "label") + 
+  free(p1_c, side = "l", type = "label") + 
+  free(p1_d, side = "l", type = "label") + 
+  plot_layout(height = c(2, 2, 2, 3)) &
+  theme(legend.justification = "left")
+  
+ggsave("../figure/Fig2.pdf", plot = p1, width = 180, height = 235, unit = "mm")
+```
+

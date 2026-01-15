@@ -1,0 +1,432 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(sf)
+library(scales)
+
+library(ggtext)
+library(ggrepel)
+
+library(broom)
+library(glue)
+
+library(patchwork)
+library(mapdata)
+```
+
+```{r}
+# make df SHEET
+
+dir.create("../plot", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+daa_file <- list.files("../df/filter") 
+daa_file
+```
+
+```{r}
+#df_daa_dem_agg <- readRDS("../df/filter/df_daa_dem_agg")
+```
+
+```{r}
+df_daa_dem <- readRDS("../df/daa/format/df_daa_dem")
+```
+
+
+```{r}
+df_daa_prf_imp <- readRDS("../df/daa/analysis/df_daa_prf_imp")
+```
+
+# df_dem_daa
+
+```{r}
+# remove dcv ebr
+df_daa_dem_pts <- df_daa_dem %>%
+  mutate(DAA_ind = DAA) %>%
+   mutate(DAA = case_when(DAA %in% c("DCV", "ASV") ~ "DCV/ASV",
+                         DAA %in% c("EBR", "GZR") ~ "EBR/GZR",
+                         .default = DAA))
+```
+
+```{r}
+df_daa_dem_pts <- df_daa_dem_pts %>% 
+  filter(!DAA_ind %in% c("DCV", "EBR"))
+```
+
+
+```{r}
+df_daa_dem_pts <- df_daa_dem_pts %>%
+  mutate(DAA = factor(DAA, levels = c("DCV/ASV",
+                                      "SOF/LDV",
+                                      "SOF",
+                                      "OBV/PTV/r",
+                                      "EBR/GZR",
+                                      "GLE/PIB",
+                                      "SOF/VEL")))
+```
+
+
+```{r}
+# calculate min pts by dividing by max duration
+
+df_daa_dem_pts <- df_daa_dem_pts %>%
+  mutate(PTS_min = case_when(DAA == "DCV/ASV" ~ VALUE/(168*2),
+                             DAA == "EBR/GZR" ~ VALUE/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~ VALUE/84,
+                             DAA == "GLE/PIB" ~ VALUE/(84*3),
+                             DAA == "SOF/VEL" ~ VALUE/168))
+
+```
+
+```{r}
+# calculate mx pts by dividing min duration
+
+df_daa_dem_pts <- df_daa_dem_pts %>%
+  mutate(PTS_max = case_when(DAA == "DCV/ASV" ~ VALUE/(168*2),
+                             DAA == "EBR/GZR" ~ VALUE/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~ VALUE/84,
+                             DAA == "GLE/PIB" ~ VALUE/(56*3),
+                             DAA == "SOF/VEL" ~ VALUE/84))
+```
+
+
+```{r}
+df_daa_dem_total <- df_daa_dem_pts %>%
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+   mutate(PTS_max = case_when(DAA == "DCV/ASV" ~ TOTAL/(168*2),
+                              DAA == "EBR/GZR" ~ TOTAL/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~ TOTAL/84,
+                             DAA == "GLE/PIB" ~ TOTAL/(56*3),
+                             DAA == "SOF/VEL" ~ TOTAL/84)) %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM_total = sum(PTS_max))
+
+df_daa_dem_total 
+```
+
+```{r}
+df_daa_dem_total %>%
+  summarise(SUM = sum(SUM_total))
+```
+
+
+```{r}
+df_daa_dem_value <- df_daa_dem_pts %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM_value = sum(PTS_max)) 
+
+
+df_daa_dem_value 
+```
+
+```{r}
+df_daa_dem_diff <- df_daa_dem_total %>%
+  left_join(df_daa_dem_value,
+            by = join_by(YEAR_str))
+```
+
+```{r}
+df_daa_dem_diff_all <- df_daa_dem_diff %>%
+  summarise(SUM_total = sum(SUM_total),
+            SUM_value = sum(SUM_value)) %>%
+  mutate(DIFF = SUM_value - SUM_total) %>%
+  mutate(PCT = DIFF/SUM_total*100) %>%
+  mutate(YEAR_str = "Total") %>%
+  relocate(YEAR_str, .before = SUM_total)
+
+df_daa_dem_diff_all
+```
+
+
+
+```{r}
+df_daa_dem_diff <- df_daa_dem_diff %>%
+  mutate(DIFF = SUM_value - SUM_total) %>%
+  mutate(PCT = DIFF / SUM_total * 100 ) %>%
+  bind_rows(df_daa_dem_diff_all)
+
+df_daa_dem_diff
+```
+
+```{r}
+df_daa_dem_diff <- df_daa_dem_diff %>%
+  mutate(across(c(starts_with("SUM"), DIFF),
+                ~ round(.x))) %>%
+  mutate(PCT = round(PCT, digits = 2))
+
+df_daa_dem_diff
+```
+
+
+# df_daa_prf
+
+
+```{r}
+# remove dcv ebr
+df_daa_prf_pts <- df_daa_prf_imp %>%
+   mutate(DAA_ind = DAA) %>%
+   mutate(DAA = case_when(DAA %in% c("DCV", "ASV") ~ "DCV/ASV",
+                         DAA %in% c("EBR", "GZR") ~ "EBR/GZR",
+                         .default = DAA))
+```
+
+```{r}
+df_daa_prf_pts <- df_daa_prf_pts %>% 
+  filter(!DAA_ind %in% c("DCV", "EBR"))
+```
+
+
+```{r}
+df_daa_prf_pts <- df_daa_prf_pts %>%
+  mutate(DAA = factor(DAA, levels = c("DCV/ASV",
+                                      "SOF/LDV",
+                                      "SOF",
+                                      "OBV/PTV/r",
+                                      "EBR/GZR",
+                                      "GLE/PIB",
+                                      "SOF/VEL")))
+```
+
+
+```{r}
+# calculate min pts by dividing by max duration
+
+df_daa_prf_pts <- df_daa_prf_pts %>%
+  mutate(PTS_min = case_when(DAA == "DCV/ASV" ~ VALUE/(168*2),
+                             DAA == "EBR/GZR" ~ VALUE/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~ VALUE/84,
+                             DAA == "GLE/PIB" ~ VALUE/(84*3),
+                             DAA == "SOF/VEL" ~ VALUE/168))
+
+```
+
+```{r}
+# calculate mx pts by dividing min duration
+
+df_daa_prf_pts <- df_daa_prf_pts %>%
+  mutate(PTS_max = case_when(DAA == "DCV/ASV" ~ VALUE/(168*2),
+                             DAA == "EBR/GZR" ~ VALUE/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~ VALUE/84,
+                             DAA == "GLE/PIB" ~ VALUE/(56*3),
+                             DAA == "SOF/VEL" ~ VALUE/84))
+```
+
+
+```{r}
+df_daa_prf_pts %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  count(DAA, YEAR_str)
+```
+
+```{r}
+df_daa_prf_total <- df_daa_prf_pts %>%
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+   mutate(PTS_max = case_when(DAA == "DCV/ASV" ~ TOTAL/(168*2),
+                              DAA == "EBR/GZR" ~ TOTAL/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~ TOTAL/84,
+                             DAA == "GLE/PIB" ~ TOTAL/(56*3),
+                             DAA == "SOF/VEL" ~ TOTAL/84)) %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM_total = sum(PTS_max))
+
+df_daa_prf_total 
+```
+
+```{r}
+df_daa_prf_total %>%
+  summarise(SUM = sum(SUM_total))
+```
+
+
+```{r}
+df_daa_prf_value <- df_daa_prf_pts %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM_value = sum(PTS_max)) 
+
+
+df_daa_prf_value 
+```
+
+```{r}
+df_daa_prf_diff <- df_daa_prf_total %>%
+  left_join(df_daa_prf_value,
+            by = join_by(YEAR_str))
+```
+
+```{r}
+df_daa_prf_diff_all <- df_daa_prf_diff %>%
+  summarise(SUM_total = sum(SUM_total),
+            SUM_value = sum(SUM_value)) %>%
+  mutate(DIFF = SUM_value - SUM_total) %>%
+  mutate(PCT = DIFF/SUM_total * 100) %>%
+  mutate(YEAR_str = "Total") %>%
+  relocate(YEAR_str, .before = SUM_total)
+
+df_daa_prf_diff_all
+```
+
+
+
+```{r}
+df_daa_prf_diff <- df_daa_prf_diff %>%
+  mutate(DIFF = SUM_value - SUM_total) %>%
+  mutate(PCT = DIFF / SUM_total * 100 ) %>%
+  bind_rows(df_daa_prf_diff_all)
+
+df_daa_prf_diff
+```
+
+```{r}
+df_daa_prf_diff <- df_daa_prf_diff %>%
+  mutate(across(c(starts_with("SUM"), DIFF),
+                ~ round(.x))) %>%
+  mutate(PCT = round(PCT, digits = 2))
+
+df_daa_prf_diff
+```
+
+
+```{r}
+df_daa_diff <- df_daa_dem_diff %>%
+  left_join(df_daa_prf_diff,
+            by = join_by(YEAR_str),
+            suffix = c("_dem", "_prf"))
+
+df_daa_diff
+```
+
+```{r}
+df_daa_diff %>%
+  filter(SUM_total_dem != SUM_total_prf)
+```
+
+```{r}
+df_daa_diff %>%
+  select(YEAR_str, SUM_total_dem,
+         SUM_value_dem, PCT_dem,
+         SUM_value_prf, PCT_prf) %>%
+  mutate(across(c(starts_with("DIFF"), starts_with("SUM")),
+                ~ scales::comma(.x))) %>%
+  mutate(across(c(starts_with("PCT")), 
+                  ~ format(.x, nsmall = 2))) %>%
+    mutate(across(c(starts_with("PCT")), 
+                  ~ str_remove_all(.x, "\\s"))) %>%
+  write.xlsx("../table/TableS5.xlsx")
+```
+
+# each DAA
+
+
+```{r}
+df_daa_prf_total_ind <- df_daa_prf_pts %>%
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+   mutate(PTS_max = case_when(DAA == "DCV/ASV" ~ TOTAL/(168*2),
+                              DAA == "EBR/GZR" ~ TOTAL/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~ TOTAL/84,
+                             DAA == "GLE/PIB" ~ TOTAL/(56*3),
+                             DAA == "SOF/VEL" ~ TOTAL/84)) %>%
+  group_by(YEAR_str, DAA) %>%
+  summarise(SUM_total = sum(PTS_max)) %>%
+  mutate(ID = paste0(YEAR_str, "_", DAA)) %>%
+  ungroup()
+
+df_daa_prf_total_ind 
+```
+
+
+```{r}
+df_daa_prf_value_ind <- df_daa_prf_pts %>%
+  group_by(YEAR_str, DAA) %>%
+  summarise(SUM_value = sum(PTS_max)) %>%
+  mutate(ID = paste0(YEAR_str,"_", DAA)) %>%
+  ungroup()
+ 
+
+df_daa_prf_value_ind
+```
+
+```{r}
+df_daa_prf_ind_diff <- df_daa_prf_total_ind %>%
+  left_join(df_daa_prf_value_ind %>% select(ID, SUM_value),
+            by = join_by(ID))
+```
+
+```{r}
+df_daa_prf_ind_diff
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+df_daa_prf_diff_ind <- df_daa_prf_ind_diff %>%
+  mutate(DIFF = SUM_value - SUM_total) %>%
+  mutate(PCT = DIFF/SUM_total * 100) %>%
+  relocate(YEAR_str, .before = SUM_total)
+
+df_daa_prf_diff_ind %>% View()
+```
+
+
+```{r}
+df_daa_prf_diff <- df_daa_prf_diff %>%
+  mutate(DIFF = SUM_value - SUM_total) %>%
+  mutate(PCT = DIFF / SUM_total * 100 ) %>%
+  bind_rows(df_daa_prf_diff_all)
+
+df_daa_prf_diff
+```
+
+
+```{r}
+df_daa_prf_total_sheet <- df_daa_prf_pts %>%
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  group_by(YEAR_str, DAA, SHEET) %>%
+  summarise(SUM_total = sum(VALUE)) %>%
+  mutate(ID = paste0(YEAR_str, "_", SHEET, "_", DAA)) %>%
+  ungroup()
+
+df_daa_prf_total_sheet 
+```
+
+```{r}
+df_daa_prf_pts %>% filter(YEAR_str == "2015" & DAA_ind == "ASV" & SHEET == "outpt_inpr")
+```
+

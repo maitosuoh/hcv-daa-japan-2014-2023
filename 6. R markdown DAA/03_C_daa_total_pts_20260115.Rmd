@@ -1,0 +1,573 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(ggtext)
+library(patchwork)
+
+library(scales)
+library(ggh4x)
+```
+
+```{r}
+df_daa_total_imp <- readRDS("../df/daa/analysis/df_daa_total_imp")
+```
+
+# df_daa_dem
+
+```{r}
+# remove dcv ebr
+df_daa_total_pts <- df_daa_total_imp %>%
+  mutate(DAA_ind = DAA) %>%
+  filter(!DAA_ind %in% c("DCV", "EBR")) 
+```
+
+```{r}
+# aggregate combination therapy
+
+df_daa_total_pts <- df_daa_total_pts %>%
+  mutate(DAA = case_when(DAA %in% c("DCV", "ASV") ~ "DCV/ASV",
+                         DAA %in% c("EBR", "GZR") ~ "EBR/GZR",
+                         .default = DAA))
+```
+
+```{r}
+df_daa_total_pts <- df_daa_total_pts %>%
+  mutate(DAA = factor(DAA, levels = c("DCV/ASV",
+                                      "SOF/LDV",
+                                      "SOF",
+                                      "OBV/PTV/r",
+                                      "EBR/GZR",
+                                      "GLE/PIB",
+                                      "SOF/VEL")))
+```
+
+
+```{r}
+# calculate min pts by dividing by max duration
+
+df_daa_total_pts <- df_daa_total_pts %>%
+  mutate(PTS_min = case_when(DAA == "DCV/ASV" ~ TOTAL/(168*2),
+                             DAA == "EBR/GZR" ~ TOTAL/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~ TOTAL/84,
+                             DAA == "GLE/PIB" ~ TOTAL/(84*3),
+                             DAA == "SOF/VEL" ~ TOTAL/168))
+
+```
+
+```{r}
+# calculate mx pts by dividing min duration
+
+df_daa_total_pts <- df_daa_total_pts %>%
+  mutate(PTS_max = case_when(DAA == "DCV/ASV" ~ TOTAL/(168*2),
+                             DAA == "EBR/GZR" ~ TOTAL/(84*2),
+                             DAA %in% c(
+                                        "OBV/PTV/r",
+                                        "SOF",
+                                        "SOF/LDV") ~ TOTAL/84,
+                             DAA == "GLE/PIB" ~ TOTAL/(56*3),
+                             DAA == "SOF/VEL" ~ TOTAL/84))
+```
+
+```{r}
+df_daa_total_pts <- df_daa_total_pts %>%
+  mutate(YEAR_str = as.numeric(YEAR_str))
+```
+
+
+```{r}
+df_daa_total_pts %>%
+  group_by(CLASS_code, DAA) %>%
+  summarise(SUM = sum(PTS_min)) 
+```
+
+```{r}
+df_daa_total_pts %>%
+  group_by(CLASS_code, DAA) %>%
+  summarise(SUM = sum(PTS_min)) %>%
+  ggplot(aes(SUM, CLASS_code, fill = DAA))+
+  geom_col()+
+  scale_x_continuous(breaks = c(seq(0, 3*10^5, 10^5), 2.5*10^5),
+                     limits = c(0, 3*10^5))+
+  theme_classic()+
+  theme(legend.position = "bottom")
+```
+
+```{r}
+df_daa_total_pts %>%
+  group_by(CLASS_code, DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ggplot(aes(SUM, CLASS_code, fill = DAA))+
+  geom_col()+
+  scale_x_continuous(breaks = c(seq(0, 4*10^5, 10^5), 2.5*10^5),
+                     limits = c(0, 4*10^5))+
+  theme_classic()+
+  theme(legend.position = "bottom")
+```
+
+```{r}
+df_daa_total_pts %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(CUMSUM = cumsum(SUM))
+```
+
+```{r}
+df_daa_total_pts %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(CUMSUM = cumsum(SUM)) %>%
+  ggplot(aes(YEAR_str, CUMSUM))+
+  geom_col()+
+  theme_classic()+
+  theme(legend.position = "right")
+```
+
+```{r}
+df_daa_total_pts %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM = sum(PTS_max))
+```
+
+```{r}
+df_daa_total_pts %>% 
+  group_by(DAA) %>%
+  summarise(SUM = sum(PTS_max)/10^9) %>%
+  mutate(TOTAL = sum(SUM)) %>%
+  mutate(PCT = SUM/TOTAL * 100)
+```
+
+```{r}
+df_daa_total_pts %>%
+  group_by(DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(SUM_label = round(SUM)) %>%
+  mutate(SUM_label = scales::comma(SUM_label)) %>%
+  mutate(ALL = sum(SUM)) %>%
+  mutate(PCT = SUM/ALL * 100) %>%
+  mutate(PCT_label = case_when(PCT > 10 ~ round(PCT, digit= 0) %>% as.character(),
+                               PCT <10 ~ round(PCT, digit = 1) %>% as.character())) %>%
+  mutate(PCT_label = case_when(PCT_label== "1" ~ "1.0",
+                               .default = PCT_label)) %>%
+  mutate(PCT_label = paste0(PCT_label, "%")) %>%
+  mutate(LABEL = paste0(SUM_label, " (", PCT_label, ")" ))
+```
+
+```{r}
+p1_b <- df_daa_total_pts %>%
+  group_by(DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(SUM_label = round(SUM)) %>%
+  mutate(SUM_label = scales::comma(SUM_label)) %>%
+  mutate(ALL = sum(SUM)) %>%
+  mutate(PCT = SUM/ALL * 100) %>%
+  mutate(PCT_label = case_when(PCT > 10 ~ round(PCT, digit= 0) %>% as.character(),
+                               PCT <10 ~ round(PCT, digit = 1) %>% as.character())) %>%
+  mutate(PCT_label = case_when(PCT_label== "1" ~ "1.0",
+                               .default = PCT_label)) %>%
+  mutate(PCT_label = paste0(PCT_label, "%")) %>%
+  ggplot(aes(SUM, fct_reorder(DAA, SUM), fill = DAA)) +
+  geom_col(width = 0.6)+
+  scale_fill_manual(values = c("#1f77b4",
+                               
+                               "#9467bd",
+                               "#17becf",
+                              "#d62728",
+                              "#2ca02c",
+                              "#ff7f0e",
+                         "#7f7f7f"))+
+  geom_richtext(aes(x = SUM+100000/100, label = PCT_label), size = 2.8, hjust = 0,
+                fill = NA, label.color = NA, 
+                label.padding = grid::unit(rep(0, 4), "pt") )+
+  scale_x_continuous(expand = c(0, 0),
+                     breaks = c(seq(0, 100000, 10000)),
+                     limits = c(0, 100000),
+                     label = label_comma()) +
+  coord_cartesian(clip = "off")+
+  labs(tag = "B",
+       x = "Treated people (n)",
+       y = "DAA")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),,
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+p1_b 
+```
+
+```{r}
+ df_daa_total_pts %>% 
+  group_by(DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(TOTAL = sum(SUM)) %>%
+  mutate(PCT = SUM/TOTAL * 100) %>%
+   mutate(LABEL = paste0(round(PCT), "%")) %>%
+  mutate(LABEL = case_when(DAA == "SOF/VEL" ~ "0.5%",
+                           .default = LABEL)) %>%
+  ggplot(aes(SUM, fct_reorder(DAA, SUM), fill = DAA)) +
+  geom_col(width = 0.5)+
+  scale_fill_manual(values = c("#1f77b4",
+                               "#9467bd",
+                               "#17becf",
+                              "#d62728",
+                              "#2ca02c",
+                              "#ff7f0e",
+                         "#7f7f7f"))+
+  geom_text(aes(x = SUM+100000/100, label = LABEL), size = 2.8, hjust = 0)+
+  scale_x_continuous(expand = c(0, 0),
+                     breaks = c(seq(0, 100000, 10000)),
+                     limits = c(0, 100000),
+                     label = label_comma()) +
+  coord_cartesian(clip = "off")+
+  labs(tag = "B",
+       x = "Treated patients",
+       y = "DAA")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),,
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+```
+
+```{r}
+df_daa_dem_pts_all <- df_daa_total_pts %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(DAA = "All")
+
+df_daa_dem_pts_all 
+```
+
+```{r}
+df_daa_total_pts %>%
+  group_by(YEAR_str) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  mutate(DAA = "total") %>%
+ ggplot(aes(YEAR_str, SUM, group = DAA))+
+  geom_line()+
+  geom_point()+
+  scale_y_continuous(breaks = seq(0, 100000, 20000),
+                    limits = c(0, 100000))+
+  theme_classic()+
+  theme(legend.position = "right")
+```
+
+```{r}
+df_daa_total_pts %>%
+  group_by(YEAR_str, DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  bind_rows(df_daa_dem_pts_all) %>%
+  ungroup()%>%
+  group_by(DAA) %>%
+  mutate(CUMSUM = cumsum(SUM))
+```
+
+```{r}
+cs_pts_max <- df_daa_total_pts %>%
+  group_by(YEAR_str, DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  bind_rows(df_daa_dem_pts_all) %>%
+  ungroup()%>%
+  group_by(DAA) %>%
+  mutate(CS = cumsum(SUM)) %>%
+  filter(DAA == "All" & CS == max(CS)) %>% pull(CS) 
+
+cs_pts_max
+```
+
+
+```{r}
+p1_a1 <- df_daa_dem_pts_all %>%
+  mutate(YEAR_str= as.numeric(YEAR_str)) %>%
+  ggplot(aes(YEAR_str, SUM, group = DAA))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  scale_colour_manual(values = "black")+
+  scale_y_continuous(# expand = c(0, 0),
+                     breaks = c(seq(0, 100000, 25000)),
+                     limits = c(0, 100000),
+                     label = label_comma()) +
+  geom_text(data = df_daa_dem_pts_all %>%
+                  filter(YEAR_str %in% c(2015, 2023)) %>%
+                  mutate(label = scales::comma(round(SUM))),
+                aes(x = YEAR_str, y = SUM + 10^5/20, label = label),
+                vjust = 0,
+                size = 2.8,
+                colour = "black")+
+     annotate(geom = "text",
+            x = (2014+2023)/2,
+            y = 100000,
+            label = "Annual",
+            size = 2.8,
+            colour = "black",
+            fontface = "bold")+ 
+  coord_cartesian(clip = "off")+
+    labs(tag = "A",
+        # title = "Annual",
+         x = "Year",
+         y = "Treated people (n)")+
+  theme_classic()+
+  theme(legend.position = "right")+
+    theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+          plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+         axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.spacing.y = unit(0, unit ="mm"),
+        legend.background =element_blank(),
+      plot.margin = margin(0,0,0,0, "mm"))
+
+p1_a1
+```
+
+```{r}
+p1_a2 <- df_daa_dem_pts_all %>%
+  mutate(CUMSUM = cumsum(SUM)) %>%
+  mutate(DAA = "Cumulative") %>%
+  ggplot(aes(YEAR_str, CUMSUM, group= DAA, colour = DAA))+
+  geom_line(linewidth = 0.3, colour = "black")+
+  geom_point(size = 1, colour = "black")+
+  geom_text(data = df_daa_dem_pts_all %>%
+                  mutate(CUMSUM = cumsum(SUM)) %>%
+                  filter(YEAR_str == 2023) %>%
+                  mutate(label = scales::comma(round(CUMSUM))),
+                aes(x = YEAR_str, y = CUMSUM + 400000/20, label = label),
+                 vjust = 0,
+                size = 2.8,
+                colour = "black")+
+   annotate(geom = "text",
+            x = (2014+2023)/2,
+            y = 400000,
+            label = "Cumulative",
+            size = 2.8,
+            colour = "black",
+            fontface = "bold")+ 
+      scale_y_continuous(
+                     breaks = c(seq(0, 400000, 100000)),
+                     limits = c(0, 400000),
+                     label = label_comma()) +
+  coord_cartesian(clip = "off")+
+    labs(#title = "Cumulative",
+         x = "Year",
+       y = "Treated people (n)")+
+  theme_classic()+
+    theme(
+         # plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+         axis.title = element_text(size = 8, colour = "black", face = "bold"),
+         axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.spacing.y = unit(0, unit ="mm"),
+        legend.background =element_blank(),
+      plot.margin = margin(0,0,0,0, "mm"))
+
+p1_a2
+```
+
+# Annual DAA
+
+```{r}
+p1_c <- df_daa_total_pts %>%
+  group_by(YEAR_str, DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ggplot(aes(YEAR_str, SUM, group= DAA, colour = DAA))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  scale_colour_manual(values = c("#1f77b4",
+                               
+                               "#9467bd",
+                               "#17becf",
+                              "#d62728",
+                              "#2ca02c",
+                              "#ff7f0e",
+                         "#7f7f7f"))+
+       annotate(geom = "text",
+            x = (2014+2023)/2,
+            y = 40000,
+            label = "Annual",
+            size = 2.8,
+            colour = "black",
+            fontface = "bold")+ 
+  
+  scale_x_continuous(
+                     breaks = seq(2014, 2023, 1),
+                     limits = c(2014, 2023))+
+      scale_y_continuous(
+                     breaks = seq(0, 40000,10000),
+                     limits = c(0, 40000),
+                     label = label_comma()) +
+    labs(tag = "C",
+         #title = "Annual",
+         x = "Year",
+       y = "Treated people (n)")+
+  theme_classic()+
+  theme(legend.position = "right")+
+    theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+          #plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+          axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+         legend.margin = margin(0, 0, 0, 0, unit='cm'),
+      #  legend.box.margin = margin(0, 0, 0, 0, unit='cm'),
+        legend.background = element_blank(),
+        plot.margin =margin(0,0,0,0, "mm"))
+
+p1_c
+```
+
+```{r}
+df_daa_total_pts %>%
+  group_by(YEAR_str, DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  filter(DAA == "SOF/VEL" & as.numeric(YEAR_str) >= 2019)
+```
+
+```{r}
+#p1_c2 <- 
+
+df_daa_total_pts %>%
+  group_by(YEAR_str, DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  filter(DAA == "SOF/VEL" & as.numeric(YEAR_str) >= 2019) %>%
+  ggplot(aes(YEAR_str, SUM, group= DAA))+
+  geom_line(linewidth = 0.3, colour = "grey")+
+  geom_point(size = 1, colour = "grey")+
+      scale_y_continuous(
+                     breaks = seq(0, 750,250),
+                     limits = c(0, 750),
+                     label = label_comma()) +
+  labs(x = "Year",
+       y = "Treated people (n)")+
+  theme_classic()+
+  theme(legend.position = "right")+
+    theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+          axis.title = element_blank(),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = margin(0,0,0,0, "mm"))
+```
+
+# Cumulative DAA
+
+```{r}
+p1_d <- df_daa_total_pts %>%
+  group_by(YEAR_str, DAA) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ungroup() %>%
+  group_by( DAA) %>%
+  mutate(CUMSUM = cumsum(SUM)) %>%
+  ggplot(aes(YEAR_str, CUMSUM, group= DAA, colour = DAA))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  scale_colour_manual(values = c( "#1f77b4",
+                               
+                               "#9467bd",
+                               "#17becf",
+                              "#d62728",
+                              "#2ca02c",
+                              "#ff7f0e",
+                         "#7f7f7f"))+
+     annotate(geom = "text",
+            x = (2014+2023)/2,
+            y = 100000,
+            label = "Cumulative",
+            size = 2.8,
+            colour = "black",
+            fontface = "bold")+ 
+    scale_x_continuous(
+                     breaks = seq(2014, 2023, 1),
+                     limits = c(2014, 2023))+
+      scale_y_continuous(
+                     breaks = c(seq(0, 100000, 20000)),
+                     limits = c(0, 100000),
+                     label = label_comma()) +
+    labs(tag = "D",
+         #title = "Cumulative",
+         x = "Year",
+       y = "Treated people (n)")+
+  theme_classic()+
+  theme(legend.position = "right")+
+    theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+          #plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+          axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "right",
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.background = element_blank(),
+        legend.margin = margin(0, 0, 0, 0, unit='mm'),
+       # legend.box.margin = margin(0, 0, 0, 0, unit='cm'),
+        plot.margin = margin(0,0,0,0, "mm"))
+
+p1_d
+```
+
+```{r}
+p1_a <- p1_a1 + plot_spacer() + p1_a2 +
+  plot_layout(widths = c(1, 1/100, 1 ))
+
+p1_a 
+```
+
+```{r}
+p1 <- free(p1_a, side = "l", type = "label")+
+  free(p1_b, side = "l", type = "label") +
+  free(p1_c, side = "l", type = "label")+
+  free(p1_d, side = "l", type = "label")+
+  plot_layout(heights = c(2, 2, 3, 3))&
+  theme(legend.justification = "left")
+
+p1
+```
+
+```{r}
+ggsave("../figure/Fig3.pdf", plot = p1, width = 180, height = 235, unit = "mm")
+```
+

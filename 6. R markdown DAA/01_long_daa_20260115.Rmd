@@ -1,0 +1,274 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+```
+
+
+```{r}
+# make df folder
+
+dir.create("../df/daa", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+dir.create("../df/daa/long", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+```{r}
+file_rbind <- list.files("../df/rbind", pattern = "oral") 
+
+file_rbind
+```
+
+```{r}
+path_rbind <- paste0("../df/rbind/", file_rbind)
+```
+
+
+
+```{r}
+for (i in 1:length(file_rbind)){
+  assign(file_rbind[i], readRDS(path_rbind[i]))
+}
+```
+
+```{r}
+df_oral_dem_2 %>% count(YEAR_str)
+```
+
+
+
+# filter daa
+
+```{r}
+# only daa
+
+hcv_drug <- c("ダクルインザ", "スンベプラ",
+              "ハーボニー", 
+              "ソバルディ", 
+              "ヴィキラックス", 
+              "エレルサ", "グラジナ",
+              "マヴィレット", 
+              "エプクルーサ")
+```
+
+```{r}
+#hep_drug <- c(hbv_drug, hcv_drug)
+
+hcv_drug_query <- paste0(hcv_drug, collapse = "|")
+```
+
+
+```{r}
+filter_daa <- function(x) {
+  x %>%
+    filter(str_detect(DRUG_name, hcv_drug_query)) %>%
+    mutate(across(c(starts_with("M_"), 
+                    starts_with("F_"),
+                    ends_with("都"),
+                    ends_with("道"),
+                    ends_with("府"),
+                    ends_with("県")), ~ na_if(.x, "-"))) %>%
+    mutate(across(c(starts_with("M_"), 
+                    starts_with("F_"),
+                    ends_with("都"),
+                    ends_with("道"),
+                    ends_with("府"),
+                    ends_with("県")), ~ as.numeric(.x))) %>%
+    mutate(DAA = case_when(str_detect(DRUG_name, "ダクルインザ")　~ "DCV",
+                           str_detect(DRUG_name, "スンベプラ")　~ "ASV",
+                           str_detect(DRUG_name, "ソバルディ")　~ "SOF",
+                           str_detect(DRUG_name, "ハーボニー")　~ "SOF/LDV",
+                           str_detect(DRUG_name, "ヴィキラックス")　~ "OBV/PTV/r",
+                           str_detect(DRUG_name, "エレルサ")　~ "EBR",
+                           str_detect(DRUG_name, "グラジナ")　~ "GZR",
+                           str_detect(DRUG_name, "マヴィレット")　~ "GLE/PIB",
+                           str_detect(DRUG_name, "エプクルーサ")　~ "SOF/VEL",
+                           .default = NA)) %>%
+    relocate(DAA, .after = "DRUG_name")
+}
+```
+
+
+
+```{r}
+df_daa_dem_1 <- df_oral_dem_1 %>%
+  filter_daa()
+```
+
+```{r}
+df_oral_dem_2 %>%
+  filter_daa() %>%
+  distinct(DRUG_name)
+```
+
+```{r}
+df_daa_dem_1 %>% select(starts_with("M_")) %>% ncol()
+
+df_daa_dem_1 %>% select(starts_with("F_")) %>% ncol()
+```
+
+
+
+```{r}
+df_daa_dem_1 %>%
+  rowwise() %>%
+  mutate(M_na = sum(is.na(c_across(starts_with("M_"))))) %>%
+  mutate(F_na = sum(is.na(c_across(starts_with("F_")))))
+```
+
+```{r}
+# no age-sex category with only one NA
+df_daa_dem_1 %>%
+  rowwise() %>%
+  mutate(M_na = sum(is.na(c_across(starts_with("M_"))))) %>%
+  mutate(F_na = sum(is.na(c_across(starts_with("F_"))))) %>%
+  filter(M_na == 1 | F_na == 1)
+```
+
+
+```{r}
+df_daa_dem_2 <- df_oral_dem_2 %>% filter_daa()
+```
+
+```{r}
+df_daa_dem_2 %>% select(starts_with("M_")) %>% ncol()
+
+df_daa_dem_2 %>% select(starts_with("F_")) %>% ncol()
+```
+
+```{r}
+df_daa_dem_2 %>%
+  rowwise() %>%
+  mutate(M_na = sum(is.na(c_across(starts_with("M_"))))) %>%
+  mutate(F_na = sum(is.na(c_across(starts_with("F_"))))) %>%
+  mutate(MF_na = sum(is.na(c_across(c(starts_with("F_"), starts_with("M_"))))))
+```
+
+```{r}
+df_daa_dem_2 %>%
+  rowwise() %>%
+  mutate(M_na = sum(is.na(c_across(starts_with("M_"))))) %>%
+  mutate(F_na = sum(is.na(c_across(starts_with("F_"))))) %>%
+  mutate(MF_na = sum(is.na(c_across(c(starts_with("F_"), starts_with("M_")))))) %>%
+  filter(MF_na == 1)
+```
+
+```{r}
+df_daa_prf_1 <- df_oral_prf_1 %>% filter_daa()
+
+df_daa_prf_2 <- df_oral_prf_2 %>% filter_daa()
+```
+
+```{r}
+df_daa_prf_1 %>%
+  rowwise() %>%
+  mutate(PRF_na = sum(is.na(c_across(c(ends_with("都"),
+                                       ends_with("道"),
+                                       ends_with("府"),
+                                       ends_with("県"))))))
+```
+
+```{r}
+df_daa_prf_2 %>%
+  rowwise() %>%
+  mutate(PRF_na = sum(is.na(c_across(c(ends_with("都"),
+                                       ends_with("道"),
+                                       ends_with("府"),
+                                       ends_with("県"))))))
+```
+
+
+```{r}
+convert_dem_long <- function(x) {
+  
+  df <- readRDS(x)
+  
+  df<- df %>%
+    filter_daa() %>%
+    pivot_longer(starts_with(c("M_", "F_")), names_to = "SEX_AGE", values_to = "VALUE") %>%
+    mutate(SEX = str_extract(SEX_AGE, "^M|^F")) %>%
+    mutate(AGE = str_remove(SEX_AGE, "M_|F_")) 
+  
+  to <- x %>% 
+    str_replace("rbind", "daa/long") %>% 
+    str_replace("oral", "daa") %>%
+    str_c("_long")
+  
+  saveRDS(df, to)
+}
+```
+
+
+```{r}
+file_rbind_dem <- file_rbind %>% str_subset("dem")
+file_rbind_dem 
+```
+
+
+```{r}
+path_rbind_dem <- paste0("../df/rbind/", file_rbind_dem)
+path_rbind_dem
+```
+
+```{r}
+for (i in 1:length(path_rbind_dem)){
+  convert_dem_long(path_rbind_dem[i])
+  print(paste(path_rbind_dem[i] %>% str_extract("(?<=\\/)[^\\/]+$"), "completed"))
+}
+```
+
+# save prf
+```{r}
+convert_prf_long <- function(x) {
+  
+  df <- readRDS(x)
+  
+  df <- df %>%
+    filter_daa() %>%
+    pivot_longer(ends_with(c("都", "道", "府", "県")),
+                 names_to = "PRF", values_to = "VALUE")
+  
+  to <- x %>% 
+    str_replace("rbind", "daa/long") %>% 
+    str_replace("oral", "daa") %>%
+    str_c("_long")
+  
+  saveRDS(df, to)
+}
+```
+
+
+```{r}
+file_rbind_prf <- file_rbind %>% str_subset("prf")
+file_rbind_prf 
+```
+
+
+```{r}
+path_rbind_prf <- paste0("../df/rbind/", file_rbind_prf)
+path_rbind_prf
+```
+
+
+```{r}
+for (i in 1:length(path_rbind_prf)){
+  convert_prf_long(path_rbind_prf[i])
+  print(paste(path_rbind_prf[i] %>% str_extract("(?<=\\/)[^\\/]+$"), "completed"))
+}
+```
+
+
+# end of prf conversion
