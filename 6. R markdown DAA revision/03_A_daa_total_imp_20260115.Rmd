@@ -1,0 +1,163 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(cowplot)
+library(patchwork)
+library(ggtext)
+library(scales)
+```
+
+```{r}
+# make df folder
+
+dir.create("../figure", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+# make df folder
+
+dir.create("../df/daa/analysis", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+df_daa_dem <- readRDS("../df/daa/format/df_daa_dem")
+```
+
+```{r}
+df_cost_all <- readRDS("../rds/cost/df_cost_all")
+```
+
+```{r}
+df_boj <- readRDS("../rds/boj/df_boj")
+```
+
+
+# df_daa_dem
+
+```{r}
+df_daa_dem %>% count(YEAR_str)
+```
+
+
+```{r}
+df_daa_dem %>% count(DAA)
+```
+
+
+```{r}
+df_daa_dem %>% count(SHEET)
+```
+
+```{r}
+df_daa_total <- df_daa_dem %>%
+  distinct(YEAR_str, FILE, SHEET, DAA, .keep_all = TRUE)
+```
+
+```{r}
+df_daa_total %>% count(YEAR_str, SHEET, DAA)
+```
+
+
+```{r}
+df_daa_total %>% count(YEAR_str, DAA)
+```
+
+```{r}
+# check minimal value for each DAA
+# non-zero values
+
+df_daa_total %>% 
+  group_by(DAA) %>%
+  summarise(MIN = min(TOTAL))
+```
+
+
+```{r}
+df_daa_total %>% count(YEAR_str, DAA) %>% filter(n != 3)
+```
+```{r}
+# check 
+
+df_ebr_gzr <- df_daa_total %>% 
+  filter(YEAR_str %in% c("2018", "2019") &
+           DAA %in% c("EBR", "GZR"))
+
+df_ebr_gzr 
+```
+```{r}
+df_ebr_gzr_wide <- df_ebr_gzr %>%
+  select(SHEET, DAA, YEAR_str, TOTAL) %>%
+  pivot_wider(names_from = DAA,
+              values_from = TOTAL)
+
+df_ebr_gzr_wide 
+```
+```{r}
+df_ebr_gzr %>%
+  count(DAA, YEAR_str, COST_per)
+```
+
+
+```{r}
+# extract EBR
+
+df_gzr <- df_daa_total %>% 
+  filter(DAA == "GZR") %>%
+  filter( (SHEET == "inpt" & YEAR_str == "2019")|
+           (SHEET == "outpt_inpr" & YEAR_str == "2019") |
+             (SHEET == "outpt_outpr" & YEAR_str == "2018") )
+
+df_gzr
+```
+```{r}
+# extract EBR
+
+df_ebr_imp <- df_gzr %>%
+  mutate(DAA = "EBR") %>%
+  mutate(TOTAL = TOTAL/2) %>%
+  mutate(COST_per = 25982.5)
+
+df_ebr_imp 
+```
+```{r}
+# get drug information from the overall df
+
+df_ebr_info <- df_daa_total %>%
+  filter(DAA == "EBR") %>%
+  distinct(TYPE, CAT, CLASS_code, CLASS_name, DRUG_code, DRUG_name, COST_code, DAA)
+
+df_ebr_info
+```
+
+```{r}
+# update information
+df_ebr_imp <- df_ebr_imp %>%
+  rows_update(df_ebr_info,
+              by = "DAA")
+
+
+df_ebr_imp
+```
+# bind rows
+
+```{r}
+df_daa_total_imp <- df_daa_total %>%
+  bind_rows(df_ebr_imp)
+```
+
+```{r}
+saveRDS(df_daa_total_imp ,
+        "../df/daa/analysis/df_daa_total_imp")
+```
