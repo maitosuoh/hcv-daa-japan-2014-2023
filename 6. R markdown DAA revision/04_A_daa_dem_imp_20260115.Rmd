@@ -1,0 +1,132 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(broom)
+library(ggrepel)
+```
+
+```{r}
+df_daa_dem <- readRDS("../df/daa/format/df_daa_dem")
+```
+
+
+# df_daa_dem
+
+```{r}
+df_daa_dem %>% count(DAA)
+```
+
+
+```{r}
+df_daa_dem %>% count(SHEET)
+```
+
+```{r}
+df_daa_dem_sa <- df_daa_dem
+```
+
+```{r}
+# check discordance in combination therapy
+
+df_daa_dem_sa %>% 
+  distinct(DAA, AGE, SEX, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("DCV", "ASV", "EBR", "GZR")) %>%
+  count(DAA, YEAR_str)
+
+# DCV/ASV complete pairs
+# EBR/GZR needs impution
+```
+
+```{r}
+df_daa_dem_sa %>% 
+  distinct(DAA, SEX_AGE, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("DCV", "ASV", "EBR", "GZR")) %>%
+  count(DAA, YEAR_str)
+```
+
+
+```{r}
+df_daa_dem_sa %>% 
+  distinct(DAA, SEX_AGE, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("DCV", "ASV", "EBR", "GZR")) %>%
+  count(DAA, YEAR_str, SHEET)
+```
+
+
+```{r}
+# check SHEET category in EBR/GZR
+
+df_daa_dem_sa %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("EBR", "GZR")) %>%
+  count(DAA, YEAR_str)
+
+#1 EBR 2018 1 category missing -> impute from GZR 2018
+
+#2 GZR 2019 1 cateogry missing & EBR 2019 all missing -> impute 2 caterories in EBR from GZR
+# unable to fill missing GZR
+```
+```{r}
+df_daa_dem_sa %>% 
+  distinct(DAA,SEX_AGE, YEAR_str, SHEET, .keep_all = TRUE) %>%
+   filter(DAA %in% c("DCV", "ASV")) %>%
+  select(SHEET,  DAA, SEX_AGE, AGE, SEX, VALUE, YEAR_str) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE, values_fill = 0) %>% View()
+```
+
+
+```{r}
+df_daa_dem_sa %>% 
+  distinct(DAA,SEX_AGE, YEAR_str, SHEET, .keep_all = TRUE) %>%
+   filter(DAA %in% c("DCV", "ASV")) %>%
+  select(SHEET,  DAA, SEX_AGE, AGE, SEX, VALUE, YEAR_str) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE, values_fill = 0) %>% 
+  filter( ASV == 0 & DCV > 0 ) %>%
+  View()
+
+# no available results 
+# All ASV results available even if DCV is 0
+
+```
+
+```{r}
+df_daa_dem_sa %>% 
+  distinct(DAA,SEX_AGE, YEAR_str, SHEET, .keep_all = TRUE) %>%
+   filter(DAA %in% c("EBR", "GZR")) %>%
+  select(SHEET,  DAA, SEX_AGE, AGE, SEX, VALUE, YEAR_str) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE, values_fill = 0) %>% View()
+```
+
+
+```{r}
+df_daa_dem_sa %>% 
+  distinct(DAA,SEX_AGE, YEAR_str, SHEET, .keep_all = TRUE) %>%
+   filter(DAA %in% c("EBR", "GZR")) %>%
+  select(SHEET,  DAA, SEX_AGE, AGE, SEX, VALUE, YEAR_str) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE, values_fill = 0) %>% 
+  filter( GZR == 0 & EBR > 0 ) %>%
+  View()
+
+# no available results 
+
+# no available results 
+# All GZR results available even if EBR is 0
+
+# imputation unnecessary for pts estimation
+# end of format
+```
+
+
+# end

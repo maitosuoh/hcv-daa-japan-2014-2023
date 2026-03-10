@@ -1,0 +1,559 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(ggrepel)
+library(broom)
+library(glue)
+library(ggtext)
+
+library(sf)
+
+library(patchwork)
+library(scales)
+
+library(ggh4x)
+```
+
+```{r}
+# make df SHEET
+
+#dir.create("../df/hcv", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+list.files("../df/filter") 
+```
+
+```{r}
+df_daa_prf_pts <- readRDS("../df/daa/analysis/df_daa_prf_pts")
+```
+
+```{r}
+#df_daa_dem_agg <- readRDS("../df/filter/df_daa_dem_agg")
+```
+
+```{r}
+df_daa_dem_pts <- readRDS("../df/daa/analysis/df_daa_dem_pts")
+```
+
+```{r}
+df_pop_prf <- readRDS("../rds/pop/prf/df_pop_prf")
+```
+
+```{r}
+p_jp_reg <- readRDS("../plot/p_jp_reg")
+```
+
+
+# prepare data for individual prf x year 
+
+
+```{r}
+df_daa_prf_pts <- df_daa_prf_pts %>%
+   mutate(PRF_join = paste0(PRF_jp ,"_" , YEAR_str))
+
+df_daa_prf_pts
+```
+
+
+```{r}
+df_pop_prf <- df_pop_prf %>%
+  filter(PRF_jp != "total") %>%
+  mutate(PRF_join = paste0(PRF_jp ,"_" , YEAR))
+
+df_pop_prf
+```
+
+```{r}
+df_daa_prf_pts <- df_daa_prf_pts %>%
+  left_join(df_pop_prf %>% select(ALL_total, PRF_join),
+            by = join_by(PRF_join))
+```
+
+# calculate the number of pts for each year and prefecture
+
+```{r}
+df_daa_prf_pts_year <- df_daa_prf_pts %>% 
+  group_by(PRF, iso_3166_2, YEAR_str, PRF_join) %>%
+  summarise(SUM = sum(PTS_max)) %>%
+  ungroup() %>%
+  left_join(df_pop_prf %>% select(ALL_total, PRF_join),
+            by = join_by(PRF_join))
+```
+
+
+```{r}
+df_daa_prf_pts_year <- df_daa_prf_pts_year %>%
+  mutate(ALL_mm = ALL_total/1000) 
+```
+
+
+```{r}
+df_daa_prf_pts_year
+```
+
+
+# individual 
+
+```{r}
+df_prf_reg_year <-   df_daa_prf_pts_year %>%
+  select(PRF, YEAR_str, SUM, ALL_mm) %>%
+  nest(data = -YEAR_str) %>%
+  mutate(
+    fit = purrr::map(data, ~ lm(SUM ~ ALL_mm, data = .x)),
+    tidied = purrr::map(fit, tidy),
+    glanced = purrr::map(fit, glance),
+    augmented = purrr::map(fit, augment)
+  )
+```
+
+```{r}
+df_prf_reg_year_tidy <- df_prf_reg_year %>% unnest(tidied)
+
+df_prf_reg_year_tidy
+```
+
+```{r}
+df_prf_reg_year_wide <- df_prf_reg_year_tidy %>%
+  select(YEAR_str, term, estimate) %>%
+  mutate(term = str_remove_all(term, "\\(|\\)")) %>%
+  pivot_wider( names_from = term,  values_from = estimate)
+
+  
+df_prf_reg_year_wide
+```
+
+
+```{r}
+df_reg_year_label <- df_prf_reg_year %>% unnest(glanced) %>%
+  left_join(df_prf_reg_year_wide,
+            by = join_by(YEAR_str)) %>%
+    mutate(label = glue("*y* = {round(ALL_mm, 0)}*x* + {round(Intercept, 0)}<br>*p* < 0.001<br> *R*<sup>2</sup><sub>adj</sub> = {round(adj.r.squared, 2)}"))  %>%
+  mutate(label = str_replace(label, "0.9$", "0.90"))
+  
+  df_reg_year_label
+```
+
+```{r}
+year_filter <- c(8, 10, 10, 8, 8, 
+                 8,5 ,5 ,5 ,5 )
+
+year_char <- c(2014:2023) %>% as.character()
+```
+
+```{r}
+df_daa_prf_pts_name <- purrr::map2(year_char,
+                                  year_filter, 
+                                  function(x, y){
+  df_daa_prf_pts_year %>%
+    filter(YEAR_str == x) %>%
+    slice_max(SUM, n = y) %>%
+    return()
+                            
+}) %>%
+  list_rbind()
+```
+
+
+```{r}
+df_daa_prf_pts_year %>%
+  group_by(YEAR_str) %>%
+  slice_max(SUM, n = 10)
+```
+
+```{r}
+df_daa_prf_pts_name_2014 <- df_daa_prf_pts_year %>%
+  filter(YEAR_str == "2014") %>%
+  slice_max(SUM, n = 9) %>%
+  filter(!PRF %in% c("Hiroshima", "Hokkaido")) %>%
+  mutate(hjust = case_when(PRF %in% c("Osaka",
+                                      "Chiba",
+                                      "Saitama") ~ 0,
+                           PRF %in% c("Fukuoka") ~ 1,
+                           .default = 0.5)) %>%
+    
+  mutate(vjust = case_when(PRF %in% c("Chiba", "Saitama") ~ 1,
+                       PRF %in% c(#"Saitama",
+                                  "Osaka") ~ 0.5,
+                       .default = 0)) %>%
+  
+  mutate(x = case_when(PRF %in% c("Tokyo",
+                                  "Fukuoka",
+                                  "Chiba") ~ ALL_mm,
+                       hjust == 1 ~ ALL_mm - 15/25,
+                       hjust == 0 ~ ALL_mm + 15/25,
+                       .default = ALL_mm)) %>%
+  
+  mutate(y = case_when(PRF == "Saitama" ~ SUM,
+                       vjust == 1 ~ SUM - 8000/25,
+                       vjust == 0 ~ SUM + 8000/25,
+                       .default = SUM)) %>%
+  mutate(vjust = case_when(PRF== "Saitama" ~ 1,
+                           .default = 0.5))
+```
+
+```{r}
+df_daa_prf_pts_name_2015 <- df_daa_prf_pts_year %>%
+  filter(YEAR_str == "2015") %>%
+  slice_max(SUM, n = 10) %>%
+  mutate(hjust = case_when(PRF %in% c("Aichi",
+                                      "Saitama",
+                                      "Hokkaido",
+                                      "Chiba",
+                                      "Kanagawa") ~ 0,
+                           .default = 0.5)) %>%
+    
+  mutate(vjust = case_when(PRF %in% c("Chiba", "Hokkaido") ~ 1,
+                       PRF %in% c("Saitama") ~ 0.5,
+                       .default = 0)) %>%
+  
+  mutate(x = case_when(PRF %in% c("Chiba", "Hokkaido") ~ ALL_mm,
+                       hjust == 1 ~ ALL_mm - 15/25,
+                       hjust == 0 ~ ALL_mm + 15/25,
+                       .default = ALL_mm)) %>%
+  
+  mutate(y = case_when(
+                       vjust == 1 ~ SUM - 8000/25,
+                       vjust == 0 ~ SUM + 8000/25,
+                       .default = SUM))  %>%
+  mutate(vjust =  0.5)
+```
+
+```{r}
+df_daa_prf_pts_name_2016 <- df_daa_prf_pts_year %>%
+  filter(YEAR_str == "2016") %>%
+  slice_max(SUM, n = 10) %>%
+  mutate(hjust = case_when(PRF %in% c("Aichi",
+                                      "Kanagawa",
+                                      "Saitama", 
+                                      "Hokkaido") ~ 0,
+                           PRF %in% c("Fukuoka",
+                                      "Chiba",
+                                      "Ibaraki") ~ 1,
+                           .default = 0.5)) %>%
+    
+  mutate(vjust = case_when(PRF %in% c("Aichi",
+                                      "Hokkaido") ~ 1,
+                       PRF %in% c("Saitama",
+                                  "Fukuoka",
+                                  "Chiba") ~ 0.5,
+                       .default = 0)) %>%
+  
+  mutate(x = case_when(PRF %in% c("Aichi",
+                                  "Ibaraki",
+                                  "Hokkaido")~ ALL_mm,
+                       hjust == 1 ~ ALL_mm - 15/25,
+                       hjust == 0 ~ ALL_mm + 15/25,
+                       .default = ALL_mm)) %>%
+  
+  mutate(y = case_when(
+                       vjust == 1 ~ SUM - 8000/25,
+                       vjust == 0 ~ SUM + 8000/25,
+                       .default = SUM))  %>%
+  mutate(vjust =  0.5)
+```
+
+
+```{r}
+df_daa_prf_pts_name_2017 <- df_daa_prf_pts_year %>%
+  filter(YEAR_str == "2017") %>%
+  slice_max(SUM, n = 10) %>%
+  
+  mutate(hjust = case_when(
+                       PRF %in% c("Kanagawa",
+                                  "Aichi",
+                                  "Chiba",
+                                  "Hokkaido") ~ 0,
+                       PRF %in% c("Fukuoka",
+                                  "Hyogo",
+                                  "Ibaraki") ~ 1,
+                       .default = 0.5)) %>%
+  
+  
+  mutate(vjust = case_when(PRF %in% c("Tokyo",
+                                      "Osaka",
+                                      "Saitama", 
+                                      "Fukuoka",
+                                      "Ibaraki") ~ 0,
+                           PRF %in% c("Hokkaido",
+                                      "Chiba"
+                                      ) ~ 1,
+                           .default = 0.5)) %>%
+  
+  mutate(x = case_when(PRF %in% c("Chiba",
+                                  "Hokkaido",
+                                  "Ibaraki") ~ ALL_mm,
+                       hjust == 1 ~ ALL_mm - 15/25,
+                       hjust == 0 ~ ALL_mm + 15/25,
+                       .default = ALL_mm)) %>%
+  
+  mutate(y = case_when(PRF %in% c("Saitama")~ SUM + 8000/25*1.5,
+                       PRF %in% c("Hokkaido")~ SUM - 8000/25*1.5,
+                       vjust == 1 ~ SUM - 8000/25,
+                       vjust == 0 ~ SUM + 8000/25,
+                       .default = SUM)) %>%
+  mutate(vjust =  0.5)
+```
+
+```{r}
+df_daa_prf_pts_name_2018 <- df_daa_prf_pts_year %>%
+  filter(YEAR_str == "2018") %>%
+  slice_max(SUM, n =8 ) %>%
+  mutate(hjust = case_when(
+                       PRF %in% c("Kanagawa",
+                                  "Aichi",
+                                  "Chiba",
+                                  "Hokkaido",
+                                  "Saitama") ~ 0,
+                       PRF %in% c("Fukuoka",
+                                  "Hyogo") ~ 1,
+                       .default = 0.5)) %>%
+  
+  
+  mutate(vjust = case_when(PRF %in% c("Tokyo",
+                                      "Osaka",
+                                      "Saitama", 
+                                      "Fukuoka") ~ 0,
+                           PRF %in% c("Hokkaido",
+                                      "Chiba" ) ~ 1,
+                           .default = 0.5)) %>%
+  
+  mutate(x = case_when(PRF %in% c("Chiba",
+                                  "Saitama") ~ ALL_mm,
+                       hjust == 1 ~ ALL_mm - 15/25,
+                       hjust == 0 ~ ALL_mm + 15/25,
+                       .default = ALL_mm)) %>%
+  
+  mutate(y = case_when(PRF == "Chiba" ~ SUM - 8000/25*1.5,
+                       PRF == "Saitama" ~ SUM + 8000/25*2,
+                       vjust == 1 ~ SUM - 8000/25,
+                       vjust == 0 ~ SUM + 8000/25,
+                       .default = SUM)) %>%
+  mutate(vjust =  0.5)
+```
+
+```{r}
+df_daa_prf_pts_name_2019 <- df_daa_prf_pts_year %>%
+  filter(YEAR_str == "2019") %>%
+  slice_max(SUM, n = 8 ) %>%
+# filter(PRF != "Saitama") %>%
+  mutate(hjust = case_when(
+                       PRF %in% c("Kanagawa",
+                                  "Aichi",
+                                  "Chiba",
+                                  "Saitama") ~ 0,
+                       PRF %in% c("Fukuoka",
+                                  "Hyogo") ~ 1,
+                       .default = 0.5)) %>%
+  
+  
+  mutate(vjust = case_when(PRF %in% c("Tokyo",
+                                      "Osaka",
+                                      "Saitama", 
+                                      "Fukuoka"
+                                      ) ~ 0,
+                           PRF %in% c("Aichi",
+                                      "Chiba") ~ 1,
+                           .default = 0.5)) %>%
+  
+  mutate(x = case_when(PRF %in% c("Chiba", "Aichi",
+                                  "Saitama") ~ ALL_mm,
+                       hjust == 1 ~ ALL_mm - 15/25,
+                       hjust == 0 ~ ALL_mm + 15/25,
+                       .default = ALL_mm)) %>%
+  
+  mutate(y = case_when(PRF %in% c("Chiba") ~ SUM - 8000/25 *2,
+                       PRF %in% c("Saitama") ~ SUM + 8000/25 *1.25,
+                       vjust == 1 ~ SUM - 8000/25,
+                       vjust == 0 ~ SUM + 8000/25,
+                       .default = SUM)) %>%
+  mutate(vjust =  0.5)
+```
+
+
+```{r}
+df_daa_prf_pts_name_2020 <- df_daa_prf_pts_year %>%
+  filter(YEAR_str == "2020") %>%
+  filter(PRF %in% c("Tokyo", "Osaka", "Aichi", "Kanagawa", "Fuukuoka")) %>%
+  mutate(hjust = case_when(PRF %in% c("Kanagawa") ~ 0,
+                       PRF %in% c("Aichi") ~ 1,
+                       .default = 0.5)) %>%
+  mutate(vjust = case_when(PRF %in% c("Tokyo",
+                                      "Osaka") ~ 0,
+                           .default = 1)) %>%
+  
+  mutate(x = ALL_mm) %>%
+  
+  mutate(y = case_when(vjust == 1 ~ SUM - 8000/25,
+                       vjust == 0 ~ SUM + 8000/25,
+                       .default = SUM)) %>%
+  mutate(vjust =  0.5)
+```
+
+```{r}
+df_daa_prf_pts_name_2021 <- df_daa_prf_pts_year %>%
+  filter(YEAR_str == "2021") %>%
+  filter(PRF %in% c("Tokyo", "Osaka", "Aichi", "Kanagawa", "Fuukuoka")) %>%
+  mutate(hjust = case_when(PRF %in% c("Kanagawa") ~ 0,
+                       PRF %in% c("Aichi") ~ 1,
+                       .default = 0.5)) %>%
+  mutate(vjust = case_when(PRF %in% c("Tokyo",
+                                      "Osaka") ~ 0,
+                           .default = 1)) %>%
+  
+  mutate(x =  ALL_mm) %>%
+  
+  mutate(y = case_when(vjust == 1 ~ SUM - 8000/25,
+                       vjust == 0 ~ SUM + 8000/25,
+                       .default = SUM)) %>%
+  mutate(vjust =  0.5)
+```
+
+```{r}
+df_daa_prf_pts_name_2022 <- df_daa_prf_pts_year %>%
+  filter(YEAR_str == "2022") %>%
+  filter(PRF %in% c("Tokyo", "Osaka", "Aichi", "Kanagawa", "Fuukuoka")) %>%
+  mutate(hjust = case_when(PRF %in% c("Kanagawa") ~ 0,
+                       PRF %in% c("Aichi") ~ 1,
+                       .default = 0.5)) %>%
+  mutate(vjust = case_when(PRF %in% c("Tokyo",
+                                      "Osaka") ~ 0,
+                           .default = 1)) %>%
+  
+  mutate(x  = ALL_mm) %>%
+  
+  mutate(y = case_when(vjust == 1 ~ SUM - 8000/25,
+                       vjust == 0 ~ SUM + 8000/25,
+                       .default = SUM)) %>%
+  mutate(vjust =  0.5)
+```
+
+```{r}
+df_daa_prf_pts_name_2023 <- df_daa_prf_pts_year %>%
+  filter(YEAR_str == "2023") %>%
+  filter(PRF %in% c("Tokyo", "Osaka", "Aichi", "Kanagawa", "Fuukuoka")) %>%
+  mutate(hjust = case_when(PRF %in% c("Kanagawa") ~ 0,
+                       PRF %in% c("Aichi") ~ 1,
+                       .default = 0.5)) %>%
+  mutate(vjust = case_when(PRF %in% c("Tokyo",
+                                      "Osaka") ~ 0,
+                           .default = 1)) %>%
+  
+  mutate(x = ALL_mm) %>%
+  
+  mutate(y = case_when(vjust == 1 ~ SUM - 8000/25,
+                       vjust == 0 ~ SUM + 8000/25,
+                       .default = SUM)) %>%
+  mutate(vjust =  0.5)
+```
+
+```{r}
+df_daa_prf_pts_name <- df_daa_prf_pts_name_2014 %>%
+  bind_rows(df_daa_prf_pts_name_2015) %>%
+  bind_rows(df_daa_prf_pts_name_2016) %>%
+  bind_rows(df_daa_prf_pts_name_2017) %>%
+  bind_rows(df_daa_prf_pts_name_2018) %>%
+  bind_rows(df_daa_prf_pts_name_2019) %>%
+  bind_rows(df_daa_prf_pts_name_2020) %>%
+  bind_rows(df_daa_prf_pts_name_2021) %>%
+  bind_rows(df_daa_prf_pts_name_2022) %>%
+  bind_rows(df_daa_prf_pts_name_2023)
+```
+
+
+```{r}
+ p1 <- df_daa_prf_pts_year %>%
+  left_join(df_daa_prf_pts %>% distinct(iso_3166_2, REG),
+            by = join_by(iso_3166_2)) %>%
+  ggplot(aes(ALL_mm, SUM))+
+  geom_point(aes(fill = REG), colour = "black", alpha = 0.7,
+             shape = 21, size = 1.5)+
+   scale_fill_manual(values = c("#1f77b4",
+                               "#bcbd22",
+                               "#e377c2",
+                               "#7f7f7f",
+                               "#ff7f0e",
+                               "#2ca02c",
+                               "#9467bd",
+                               "#d62728"),
+                      name = "Region")+
+    geom_line(stat = "smooth",
+              method = "lm",
+              linewidth = 0.5,
+              linetype = 1,
+              alpha = 0.7,
+              colour = "#17becf")+
+  geom_text(data = df_daa_prf_pts_name,
+                  aes(x = x, y= y,
+                      label = PRF,
+                      hjust = hjust,
+                      vjust = vjust),
+                  size = 2.6,
+                  colour = "black")+
+  
+  geom_richtext(data = df_reg_year_label,
+                aes(x = 0, y = 8000, label = label),
+                size = 2.8,
+                hjust = 0, vjust = 1,
+                fill = NA, label.color = NA)+
+  facet_wrap2(vars(YEAR_str), 
+              axes = "all",
+              remove_labels = "all")+
+  scale_x_continuous(#expand = c(0, 0),
+                     breaks = seq(0, 15, 5),
+                     limits = c(0, 15))+
+  scale_y_continuous(#expand = c(0, 0),
+                     breaks = seq(0, 8000, 2000),
+                     limits = c(0, 8000),
+                     labels = label_comma())+
+  labs(x = "Population of prefecture (×10<sup>6</sup>)",
+       y = "Treated people (n)")+
+  theme_classic()+
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face = "bold",
+                                  margin = margin(0, 0, 0, 0, "mm")),
+        axis.title.x = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        legend.position = "none")
+
+ p1
+```
+
+```{r}
+p_jp_reg <- p_jp_reg +
+  guides(fill = guide_legend(override.aes = list(linewidth = 0.1,
+                                                 colour = "black",
+                                                 alpha = 1) ) )+
+  theme(legend.position = "right",
+        legend.key.size = unit(5, "mm"),
+        legend.margin = margin(0,0, 0, 0, unit = "mm"))
+
+p_jp_reg
+```
+
+
+```{r}
+p1 <- p1 + inset_element(p_jp_reg, 0.51, 0, 1, 0.3)
+```
+
+```{r}
+ggsave("../figure/Fig6.pdf", p1, width = 180, height = 235, unit = "mm")
+```
+
+
+# end of run

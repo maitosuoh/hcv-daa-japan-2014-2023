@@ -1,0 +1,434 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-10-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(cowplot)
+library(patchwork)
+library(ggtext)
+library(scales)
+```
+
+
+```{r}
+# create table directory
+
+dir.create("../table", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+```{r}
+df_daa_dem <- readRDS("../df/daa/format/df_daa_dem")
+```
+
+```{r}
+df_cost_all <- readRDS("../rds/cost/df_cost_all")
+```
+
+```{r}
+df_boj <- readRDS("../rds/boj/df_boj")
+```
+
+
+
+# df_daa_dem
+
+```{r}
+df_daa_dem %>% count(DAA)
+```
+
+
+```{r}
+df_daa_dem %>% count(SHEET)
+```
+
+
+```{r}
+# keep drug price each year
+
+df_daa_dem_price <- df_daa_dem %>%
+  distinct(DAA, YEAR_str, .keep_all = TRUE) %>%
+  rename(YEAR = "YEAR_str") %>%
+  mutate(YEAR = as.numeric(YEAR))
+```
+
+```{r}
+# check which is missing
+
+df_daa_dem_price %>%
+  count(DAA)
+```
+
+```{r}
+# EBR 2019 is missing
+# drug price 25982.5
+
+df_daa_dem_price <- df_daa_dem_price %>%
+  bind_rows(tibble(DAA = "EBR", YEAR = 2019, COST_per = 25982.5))
+```
+
+
+```{r}
+# calculate drug price for each regimen
+
+df_daa_dem_price <- df_daa_dem_price %>%
+  mutate(DAA_ind = DAA) %>%
+  mutate(DAA = case_when(str_detect(DAA, "DCV|ASV") ~ "DCV/ASV",
+                         str_detect(DAA, "EBR|GZR") ~ "EBR/GZR",
+                         .default = DAA))
+```
+
+```{r}
+df_daa_dem_price <-df_daa_dem_price %>%
+  group_by(YEAR, DAA) %>%
+  mutate(COST_day = case_when(DAA_ind == "ASV" ~ COST_per * 2,
+                              DAA_ind == "GZR" ~ COST_per * 2,
+                              DAA_ind == "GLE/PIB" ~ COST_per * 3,
+                              .default = COST_per))
+```
+
+
+```{r}
+df_daa_dem_price %>%
+  summarise(COST_day = sum(COST_day))
+```
+
+```{r}
+# standard treatment
+
+df_daa_dem_price %>%
+  summarise(COST_day = sum(COST_day)) %>%
+  mutate(COST_total = case_when(DAA == "DCV/ASV" ~ COST_day * 168,
+                                DAA %in% c("SOF", "SOF/LDV", "OBV/PTV/r", "EBR/GZR", "SOF/VEL") ~ COST_day * 84,
+                                DAA %in% c("GLE/PIB") ~ COST_day * 56))
+```
+
+```{r}
+df_price_std <- df_daa_dem_price %>%
+  summarise(COST_day = sum(COST_day)) %>%
+  mutate(WEEK = case_when(DAA == "DCV/ASV" ~24,
+                                DAA %in% c("SOF", "SOF/LDV", "OBV/PTV/r", "EBR/GZR", "SOF/VEL") ~ 12,
+                                DAA %in% c("GLE/PIB") ~ 8))
+  
+
+df_price_std
+```
+
+
+
+```{r}
+# extended
+
+df_price_spe <- df_daa_dem_price %>%
+  summarise(COST_day = sum(COST_day)) %>%
+  mutate(WEEK = case_when(DAA %in% c("SOF") & YEAR >= 2017 ~ 24,
+                          DAA %in% c("OBV/PTV/r") & YEAR >= 2016 ~ 16,
+                          DAA %in% c("SOF/VEL") ~  24,
+                          DAA %in% c("GLE/PIB") ~  12,
+                                .default = NA)) %>%
+  filter(!is.na(WEEK))
+```
+
+
+```{r}
+df_price <- df_price_std %>%
+  bind_rows(df_price_spe) %>%
+  ungroup() %>%
+  mutate(COST_total = COST_day * WEEK * 7) %>%
+  mutate(LAB = str_c(DAA, " (", YEAR, ")"))  %>%
+  mutate(DAA = factor(DAA, levels = c("DCV/ASV",
+                                      "SOF/LDV",
+                                      "SOF",
+                                      "OBV/PTV/r",
+                                      "EBR/GZR",
+                                      "GLE/PIB",
+                                      "SOF/VEL")))
+
+df_price 
+```
+
+```{r}
+df_price %>%
+   group_by(DAA) %>%
+  arrange(DAA, YEAR) %>%
+  select(!LAB) 
+```
+
+
+
+
+```{r}
+df_price <- df_price %>%
+  mutate(Daily_dose = case_when(DAA == "DCV/ASV" ~ "60 mg/200 mg",
+                         DAA == "SOF/LDV" ~ "400 mg/90 mg",
+                         DAA == "SOF" ~ "400 mg",
+                         DAA == "OBV/PTV/r" ~ "25 mg/150 mg/100 mg",
+                         DAA == "EBR/GZR" ~ "50 mg/100 mg",
+                         DAA == "GLE/PIB" ~ "300 mg/120 mg",
+                         DAA == "SOF/VEL" ~ "400 mg/100 mg"))
+```
+
+
+```{r}
+df_price %>% View()
+```
+
+
+```{r}
+# add DCV/ASV
+
+df_price <- df_price %>%
+  mutate(Genotype = case_when(DAA == "DCV/ASV" ~ "1",
+                              .default = NA)) %>%
+  mutate(Liver = case_when(DAA == "DCV/ASV" ~ "CC, c-LC",
+                              .default = NA)) 
+```
+
+```{r}
+# add SOF
+
+df_price <- df_price %>%
+  mutate(Genotype = case_when(DAA == "SOF" & WEEK == 12 ~ "2",
+                              DAA == "SOF" & WEEK == 24 ~ "other than 1, 2",
+                              .default = Genotype)) %>%
+  mutate(Liver = case_when(DAA == "SOF" ~ "CC, c-LC",
+                              .default = Liver))
+```
+
+```{r}
+# add SOF/LDV
+
+df_price <- df_price %>%
+  mutate(Genotype = case_when(DAA == "SOF/LDV" & YEAR <= 2017 ~ "1",
+                              DAA == "SOF/LDV" & YEAR >= 2018 ~ "1, 2",
+                              .default = Genotype)) %>%
+  mutate(Liver = case_when(DAA == "SOF/LDV" ~ "CC, c-LC",
+                              .default = Liver))
+```
+
+
+```{r}
+# add OTV
+
+df_price <- df_price %>%
+  mutate(Genotype = case_when(DAA == "OBV/PTV/r" & WEEK == 12 ~ "1",
+                              DAA == "OBV/PTV/r" & WEEK == 16 ~ "2",
+                              .default = Genotype)) %>%
+  mutate(Liver = case_when(DAA == "OBV/PTV/r" ~ "CC, c-LC",
+                              .default = Liver))
+
+```
+
+
+```{r}
+#EBR/GZR
+
+df_price <- df_price %>%
+  mutate(Genotype = case_when(DAA == "EBR/GZR" ~ "1",
+                              .default = Genotype)) %>%
+  mutate(Liver = case_when(DAA == "EBR/GZR" ~ "CC, c-LC",
+                              .default = Liver))
+```
+
+
+```{r}
+# GLE/PIB
+
+df_price <- df_price %>%
+  mutate(Genotype = case_when(DAA == "GLE/PIB" & WEEK == 8 ~ "1, 2",
+                              .default = Genotype)) %>%
+  mutate(Liver = case_when(DAA == "GLE/PIB" & WEEK == 8 ~ "CC",
+                              .default = Liver))
+```
+
+```{r}
+# extract gle pib
+
+df_price_gp_12 <- df_price %>%
+  filter(DAA == "GLE/PIB" & WEEK == 12)
+```
+
+```{r}
+df_price_gp_12_gt <- df_price_gp_12 %>%
+  mutate(Genotype = case_when(DAA == "GLE/PIB" & WEEK == 12 ~ "other than 1, 2",
+                              .default = Genotype)) %>%
+  mutate(Liver = case_when(DAA == "GLE/PIB" & WEEK == 12 ~ "CC, c-LC",
+                              .default = Liver))
+```
+
+```{r}
+df_price_gp_12_lc <- df_price_gp_12 %>%
+  mutate(Genotype = case_when(DAA == "GLE/PIB" & WEEK == 12 ~ "1, 2",
+                              .default = Genotype)) %>%
+  mutate(Liver = case_when(DAA == "GLE/PIB" & WEEK == 12 ~ "c-LC",
+                              .default = Liver))
+```
+
+```{r}
+df_price_gp_12_re <- df_price_gp_12 %>%
+  mutate(Genotype = case_when(DAA == "GLE/PIB" & WEEK == 12 ~ "1, 2",
+                              .default = Genotype)) %>%
+  mutate(Liver = case_when(DAA == "GLE/PIB" & WEEK == 12 ~ "CC, c-LC",
+                              .default = Liver)) %>%
+  mutate(Treatment = "re")
+```
+
+
+```{r}
+df_price <- df_price %>%
+  filter(! (DAA == "GLE/PIB" & WEEK == 12)) %>%
+  bind_rows(df_price_gp_12_lc) %>%
+  bind_rows(df_price_gp_12_re) %>%
+  bind_rows(df_price_gp_12_gt) 
+```
+
+```{r}
+df_price %>% View()
+```
+
+```{r}
+# extract sof vel
+
+df_price_sv_12 <- df_price %>%
+  filter(DAA == "SOF/VEL" & WEEK == 12) %>%
+  mutate(Genotype = case_when(DAA == "SOF/VEL" & WEEK == 12 ~ "any",
+                              .default = Genotype)) %>%
+  mutate(Liver = case_when(DAA == "SOF/VEL" & WEEK == 12 & YEAR <= 2021 ~ "d-LC",
+                           DAA == "SOF/VEL" & WEEK == 12 & YEAR >= 2022 ~ "CC, c-LC, d-LC",
+                              .default = Liver))
+```
+
+```{r}
+df_price_sv_24 <-  df_price %>%
+  filter(DAA == "SOF/VEL" & WEEK == 24) %>%
+    mutate(Genotype = case_when(DAA == "SOF/VEL" & WEEK == 24 ~ "any",
+                              .default = Genotype)) %>%
+  mutate(Liver = case_when(DAA == "SOF/VEL" & WEEK == 24 ~ "d-CC",
+                              .default = Liver)) %>%
+  mutate(Treatment = "re")
+```
+
+```{r}
+df_price <- df_price %>%
+  filter(! (DAA == "SOF/VEL")) %>%
+  bind_rows(df_price_sv_12) %>%
+  bind_rows(df_price_sv_24)
+```
+
+
+```{r}
+df_price <- df_price %>%
+  mutate(Treatment = case_when(is.na(Treatment) ~ "initial",
+                               .default = Treatment))
+```
+
+```{r}
+df_price <- df_price %>% mutate(Day = WEEK * 7)
+```
+
+```{r}
+df_price <- df_price %>% 
+  mutate(Ribavirin = case_when(DAA == "OBV/PTV/r" & WEEK == 16 ~ "+",
+                               DAA == "SOF/VEL" & WEEK == 24 ~ "+",
+                               .default = "-"))
+```
+
+```{r}
+colnames(df_price)
+```
+
+```{r}
+# format column names for export
+df_price <- df_price %>%
+  rename(Year = "YEAR",
+         Daily_cost = "COST_day",
+         Week = "WEEK",
+         Total_cost = "COST_total") 
+
+df_price
+```
+
+
+```{r}
+df_price %>%
+  select(DAA, Year, 
+         Genotype, Liver, Treatment, Ribavirin,
+         Daily_dose,  Daily_cost, 
+         Day, Week,
+         Total_cost) %>%
+  arrange(DAA, Week, Year) %>% 
+  View()
+```
+
+```{r}
+df_price %>%
+  select(DAA, Year, 
+         Genotype, Liver, Treatment, Ribavirin,
+         Daily_dose,  Daily_cost, 
+         Day, Week,
+         Total_cost) %>%
+  arrange(DAA, Week, Year) 
+```
+
+
+```{r}
+df_price %>%
+  select(DAA, Year, 
+         Genotype, Liver, Treatment, Ribavirin,
+         Daily_dose,  Daily_cost, 
+         Day, Week,
+         Total_cost) %>%
+  arrange(DAA, Week, Year) %>% 
+  mutate(across(ends_with("_cost"), ~ scales::comma(.x, accuracy = 0.1)))  %>%
+    mutate(across(ends_with("_cost"), ~ format(.x, nsmall = 1))) 
+```
+
+
+
+```{r}
+df_price <- df_price %>%
+  select(DAA, Year, 
+         Genotype, Liver, Treatment, Ribavirin,
+         Daily_dose,  Daily_cost, 
+         Day, Week,
+         Total_cost) %>%
+  arrange(DAA, Week, Year) %>% 
+    mutate(across(ends_with("_cost"), ~ scales::comma(.x, accuracy = 0.1)))  %>%
+    mutate(across(ends_with("_cost"), ~ format(.x, nsmall = 1)))
+```
+
+```{r}
+df_price <- df_price %>%
+  mutate(Genotype = str_replace(Genotype, "than 1", "than\n1")) %>%
+  mutate(Liver = str_replace_all(Liver, ",\\s", ",\n")) %>%
+  mutate(Daily_dose = str_replace_all(Daily_dose, "\\/", "\\/\n")) %>%
+  mutate(DAA = str_replace_all(DAA, "\\/", "\\/\n"))
+```
+
+```{r}
+df_price 
+```
+
+
+```{r}
+df_price  %>%
+  write.xlsx("../table/TableS3.xlsx")
+```
+
+
+
+```{r}
+df_price %>%
+  arrange(DAA, WEEK, YEAR) %>% View()
+```
+
