@@ -1,0 +1,225 @@
+---
+title: "HCV DAA"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+```
+
+```{r}
+# make df SHEET
+
+#dir.create("../df/hcv", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+daa_file <- list.files("../df/filter") 
+daa_file
+```
+
+```{r}
+#df_daa_dem_total <- readRDS("../df/daa/analysis/df_daa_dem_total")
+```
+
+
+```{r}
+#df_daa_prf <- readRDS("../df/daa/format/df_daa_prf")
+```
+
+```{r}
+df_daa_prf %>% filter(is.na(VALUE)) %>% View()
+```
+
+```{r}
+df_daa_prf <- readRDS("../df/daa/analysis/df_daa_prf_imp")
+```
+
+# df_dem_daa
+
+
+```{r}
+df_daa_prf %>% count(DAA)
+```
+
+
+```{r}
+df_daa_prf %>% count(SHEET)
+```
+
+
+```{r}
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  count(DAA, YEAR_str, SHEET)
+```
+
+
+```{r}
+# check discordance in combination therapy
+
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("DCV", "ASV", "EBR", "GRZ")) %>%
+  count(DAA, YEAR_str)
+
+# DCV/ASV complete pairs
+# EBR/GRZ needs impution
+```
+
+
+
+```{r}
+# check SHEET category in EBR/GRZ
+
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("EBR", "GRZ")) %>%
+  count(DAA, YEAR_str)
+
+#1 EBR 2018 1 category missing -> impute from GRZ 2018
+
+#2 GRZ 2019 1 cateogry missing & EBR 2019 all missing -> impute 2 caterories in EBR from GRZ
+# unable to fill missing GRZ
+```
+
+```{r}
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, PRF, .keep_all = TRUE) %>%
+  filter(DAA %in% c("DCV", "ASV")) %>%
+  ungroup() %>%
+ # filter(YEAR_str == "2014") %>%
+  select(SHEET, DAA, VALUE, PRF, YEAR_str) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE) %>% View()
+
+# in outpt_inpr 2014, the breakdown of ASV is missing !!!
+
+# update 
+```
+
+```{r}
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, PRF, .keep_all = TRUE) %>%
+  filter(DAA %in% c("DCV", "ASV")) %>%
+  ungroup() %>%
+ # filter(YEAR_str == "2014") %>%
+  select(SHEET, DAA, VALUE, PRF, YEAR_str) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE) #%>%
+#  filter(DCV > 0 & ASV == 0 )
+```
+
+
+```{r}
+# inspect discrepancies in combination therapy
+
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("EBR", "GZR")) %>%
+  select(SHEET, DAA, VALUE, PRF, YEAR_str) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE) %>% View()
+
+# GZR is complete so no need to impute for patient estimation
+```
+
+```{r}
+df_daa_prf %>% 
+  filter(DAA %in% c("EBR", "GZR")) %>%
+  select(SHEET, DAA, VALUE, PRF, YEAR_str) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE,
+              values_fill = 0)
+```
+
+
+```{r}
+df_daa_prf %>% 
+  filter(DAA %in% c("EBR", "GZR")) %>%
+  select(SHEET, DAA, VALUE, PRF, YEAR_str) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE,
+              values_fill = 0) %>%
+  filter(EBR > 0 & GZR == 0 ) %>%
+  View()
+```
+
+
+
+```{r}
+df_daa_prf %>% 
+  distinct(DAA, YEAR_str, SHEET, .keep_all = TRUE) %>%
+  filter(DAA %in% c("EBR", "GZR")) %>%
+  select(SHEET, DAA, VALUE, PRF, YEAR_str) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE) %>%
+  filter(EBR > 0 & GZR == 0 )
+```
+
+
+```{r}
+# df for row update
+
+df_daa_fill <- df_daa_prf %>%
+  filter(DAA %in% c("DCV" , "ASV")) %>%
+  select(FILE, SHEET, DAA, PRF, YEAR_str, VALUE) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE)
+```
+
+
+```{r}
+df_dcv_asv_fill <- df_daa_prf %>%
+  filter(DAA %in% c("DCV" , "ASV")) %>%
+  select(FILE, SHEET, DAA, PRF, YEAR_str, VALUE) %>%
+  pivot_wider(names_from = DAA, values_from = VALUE, values_fill = 0) %>%
+  filter( DCV != 0 & ASV == 0 )
+
+df_dcv_asv_fill
+```
+
+```{r}
+df_dcv_asv_imp <- df_dcv_asv_fill %>%
+  mutate(ASV = DCV * 2)
+
+df_dcv_asv_imp
+```
+
+```{r}
+df_asv_imp_update <- df_dcv_asv_imp %>%
+  mutate(ID = paste0(FILE, "_", SHEET, "_", YEAR_str, "_", PRF, "_", "ASV")) %>%
+  rename(VALUE = "ASV") %>%
+  select(ID, VALUE)
+
+df_asv_imp_update
+```
+
+
+```{r}
+# row update
+df_daa_prf_imp <- df_daa_prf %>%
+  mutate(ID = paste0(FILE, "_", SHEET, "_", YEAR_str, "_", PRF, "_", DAA)) %>%
+  rows_update(df_asv_imp_update, by = "ID")
+
+```
+
+
+```{r}
+# check update
+
+df_daa_prf_imp %>%
+  filter(YEAR_str == "2014" & SHEET == "outpt_inpr" & DAA == "ASV") 
+
+# update successful
+```
+
+```{r}
+df_daa_prf_imp %>%
+  filter(YEAR_str == "2015" & SHEET == "outpt_inpr") 
+```
+
+
+```{r}
+saveRDS(df_daa_prf_imp, "../df/daa/analysis/df_daa_prf_imp")
+```
