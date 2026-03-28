@@ -1,0 +1,258 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-10-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(RCurl)
+library(tidyverse)
+library(XML)
+library(xml2)
+library(rvest)
+library(readxl)
+library(openxlsx)
+
+library(fpp3)
+
+library(cowplot)
+library(patchwork)
+library(ggtext)
+library(scales)
+
+library(ggh4x)
+
+library(viridis)
+library(pals)
+
+library(stringi)
+```
+
+```{r}
+# make df folder
+
+dir.create("../df/figure", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+# make df folder
+
+dir.create("../df/daa/analysis", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+df_daa_dem <- readRDS("../df/daa/format/df_daa_dem")
+```
+
+```{r}
+df_daa_prf <- readRDS("../df/daa/format/df_daa_prf")
+```
+
+
+```{r}
+df_pop_dem <- readRDS("../rds/pop/dem/df_pop_dem")
+```
+
+```{r}
+df_pop_dem <- readRDS("../rds/pop/dem/df_pop_dem")
+```
+
+```{r}
+df_drug <- readRDS("../rds/drug/df_drug")
+```
+
+
+# modify daa_dem
+
+```{r}
+df_daa_dem %>% count(DAA)
+```
+
+
+
+```{r}
+df_daa_dem <- df_daa_dem %>%
+  rename(YEAR = "YEAR_str") %>%
+  mutate(YEAR = as.numeric(YEAR))
+  
+```
+
+```{r}
+df_drug_uni <- df_drug %>%
+  distinct(COST_code, DOSE, GENERIC, ORIGINAL, COMPANY)
+```
+
+
+
+
+```{r}
+df_drug_code <- df_daa_dem %>%
+  distinct(DRUG_code, DAA, COST_code, YEAR ) %>%
+  ungroup() %>%
+  group_by(DAA) %>%
+  slice_min(YEAR, n = 1) %>%
+  arrange(DRUG_code) %>%
+  left_join(df_drug_uni, by = join_by(COST_code)) %>%
+  distinct(DAA, .keep_all = TRUE)
+
+df_drug_code
+```
+
+
+```{r}
+df_drug_code <- df_drug_code %>%
+  mutate(Product_name = case_when(DAA == "DCV" ~ "Daklinza",
+                                  DAA == "ASV" ~ "Sunvepra",
+                                  DAA == "SOF" ~ "Sovaldi",
+                                  DAA == "SOF/LDV" ~ "Harvoni",
+                                  DAA == "OBV/PTV/r" ~ "Viekirax",
+                                  DAA == "EBR" ~ "Erelsa",
+                                  DAA == "GZR" ~ "Grazyna",
+                                  DAA == "GLE/PIB" ~ "Mavyret",
+                                  DAA == "SOF/VEL" ~ "Epclusa"))
+```
+
+```{r}
+df_drug_code <- df_drug_code %>%
+  mutate(General_name = case_when(DAA == "DCV" ~ "Daclatasvir",
+                                  DAA == "ASV" ~ "Asunaprevir",
+                                  DAA == "SOF" ~ "Sofosbuvir",
+                                  DAA == "SOF/LDV" ~ "Sofosbuvir/ledipasvir",
+                                  DAA == "OBV/PTV/r" ~ "Ombitasvir/paritaprevir/ritonavir",
+                                  DAA == "EBR" ~ "Elbasvir",
+                                  DAA == "GZR" ~ "Grazoprevir",
+                                  DAA == "GLE/PIB" ~ "Glecaprevir/pibrentasvir",
+                                  DAA == "SOF/VEL" ~ "Sofosbuvir/Velpatasvir"))
+```
+
+```{r}
+df_drug_code <- df_drug_code %>%
+  mutate(Branded_generic = case_when(!is.na(ORIGINAL) ~ "branded",
+                                     !is.na(GENERIC) ~ "generic"))
+```
+
+```{r}
+df_drug_code <- df_drug_code %>%
+  mutate(DOSE = stri_trans_general(DOSE, "Fullwidth-Halfwidth")) %>%
+  mutate(Amount = str_extract(DOSE, ".+mg")) %>%
+  mutate(Amount = str_replace(Amount, "mg", " mg")) %>%
+  mutate(Formulation = str_remove(DOSE, ".+mg")) %>%
+  mutate(Formulation = str_replace(Formulation, "錠", " tablet")) %>%
+  mutate(Formulation = str_replace(Formulation, "ｶﾌﾟｾﾙ", " capsel")) 
+
+df_drug_code 
+```
+
+```{r}
+df_drug_code <- df_drug_code %>%
+  mutate(Amount = case_when(DAA == "SOF/LDV" ~ "400 mg/90 mg",
+                          DAA == "OBV/PTV/r" ~ "12.5 mg/75 mg/50 mg",
+                          DAA == "GLE/PIB" ~ "100 mg/40 mg",
+                          DAA == "SOF/VEL" ~ "400 mg/100 mg",
+                          .default = Amount))
+```
+
+```{r}
+df_drug_code <- df_drug_code %>%
+  mutate(Company = case_when(str_detect(COMPANY, "ブリストル") ~ "Bristol Myers Squibb",
+                             str_detect(COMPANY, "ギリアド") ~ "Gilead Sciences",
+                             str_detect(COMPANY, "ＭＳＤ") ~ "MSD",
+                             str_detect(COMPANY, "アッヴィ") ~ "AbbVie",
+                          .default = COMPANY))
+```
+
+
+
+```{r}
+df_drug_code <- df_drug_code %>%
+  select(DRUG_code, COST_code, 
+         Product_name, General_name,
+         DAA,
+         YEAR,
+         Amount, Formulation,
+         Company,
+         Branded_generic) %>%
+  rename(Abbreviation = "DAA",
+         Year = "YEAR")
+
+# save this
+
+df_drug_code %>% View()
+```
+
+```{r}
+df_drug_code %>%
+  write.xlsx("../table/TableS1.xlsx")
+```
+
+
+
+```{r}
+df_daa_price <- df_daa_dem %>%
+  distinct(DAA, YEAR, COST_per, .keep_all = TRUE ) %>%
+  arrange(YEAR, DAA) %>%
+  rename(Price = "COST_per")
+```
+
+
+```{r}
+#df_daa_price <- df_daa_price %>% mutate(Price = as.character(COST_per)) 
+
+#df_daa_price
+```
+
+
+
+```{r}
+df_daa_price %>% 
+  select(DRUG_code, DAA, YEAR, Price) %>%
+  mutate(Price =  scales::comma(Price, accuracy = 0.1))  %>%
+  mutate(Price = format(Price, nsmall = 2))  %>%
+  pivot_wider(names_from = YEAR,
+              values_from = Price) %>%
+  mutate(across(everything(), ~ as.character(.x))) %>%
+  mutate(across(everything(), ~ replace_na(.x, "-"))) 
+```
+
+```{r}
+df_daa_price %>% 
+  select(DRUG_code, DAA, YEAR, Price) %>%
+  mutate(Price =  scales::comma(Price, accuracy = 0.1))  %>%
+  mutate(Price = format(Price, nsmall = 2))  %>%
+  select( YEAR, DAA, Price) %>%
+  pivot_wider(names_from = DAA,
+              values_from = Price) %>%
+  mutate(across(everything(), ~ as.character(.x))) %>%
+  mutate(across(everything(), ~ replace_na(.x, "-")))  %>%
+  write.xlsx("../table/TableS2_daa.xlsx")
+```
+
+
+```{r}
+df_daa_price %>% 
+  select(DRUG_code, COST_code, DAA, YEAR, Price) %>%
+  mutate(Price =  scales::comma(Price, accuracy = 0.1))  %>%
+  mutate(Price = format(Price, nsmall = 1))  %>%
+  mutate(Price = str_remove_all(Price, "\\s")) %>%
+  pivot_wider(names_from = YEAR,
+              values_from = Price) %>%
+  mutate(across(everything(), ~ as.character(.x))) %>%
+  mutate(across(everything(), ~ replace_na(.x, "-"))) %>%
+  write.xlsx("../table/TableS2.xlsx")
+```
+
+
+# regimen details
+
+```{r}
+df_daa_price
+```
+
+
+
+
+# end of run
